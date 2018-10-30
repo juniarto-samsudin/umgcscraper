@@ -12,11 +12,13 @@ import java.io.FileWriter;
 
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.util.Iterator;
 import static org.apache.http.HttpHeaders.USER_AGENT;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.impl.client.HttpClientBuilder;
+import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
 import org.json.simple.parser.JSONParser;
 import org.json.simple.parser.ParseException;
@@ -52,32 +54,41 @@ public class Scraper {
         
         int n=0;
         while(true){
-        HttpClient client = HttpClientBuilder.create().build();
-        HttpGet request = new HttpGet(url);    
-        request.addHeader("User-Agent", USER_AGENT);
-        request.addHeader("AccountKey","WT9HkF2lS6S7qfL1u6IOCA==");
-        request.addHeader("accept","application/json");
-        HttpResponse response = client.execute(request);
-        System.out.println("Response Code: " + response.getStatusLine().getStatusCode());
+            HttpClient client = HttpClientBuilder.create().build();
+            HttpGet request = new HttpGet(url);    
+            request.addHeader("User-Agent", USER_AGENT);
+            request.addHeader("AccountKey","WT9HkF2lS6S7qfL1u6IOCA==");
+            request.addHeader("accept","application/json");
+            HttpResponse response = client.execute(request);
+            System.out.println("Response Code: " + response.getStatusLine().getStatusCode());
         
-        BufferedReader rd = new BufferedReader(new InputStreamReader(response.getEntity().getContent()));
-        StringBuilder result = new StringBuilder();
-        String line = ""  ;
-        while ((line = rd.readLine()) != null){
-            //System.out.println(line);
-            result.append(line);
-        }
-        
-       //System.out.println(result);
-        
-        //String OutputFile = "taxi-availability.txt";
-        BufferedWriter bw = new BufferedWriter(new FileWriter(OutputFile));
-        bw.write(result.toString());
-        Thread.sleep(loop * 1000);
-        }
-        
-        
-        
+            BufferedReader rd = new BufferedReader(new InputStreamReader(response.getEntity().getContent()));
+            StringBuilder result = new StringBuilder();
+            String line = ""  ;
+            while ((line = rd.readLine()) != null){
+                result.append(line);
+            }
+            JSONParser ResultParser = new JSONParser();
+            Object ResultObject  = ResultParser.parse(result.toString());
+            JSONObject ResultJsonObject = (JSONObject)ResultObject;
+            JSONArray FeaturesArray = (JSONArray)ResultJsonObject.get("features");
+            Iterator<JSONObject> iterator = FeaturesArray.iterator();
+            String TimeStamp="";
+            while(iterator.hasNext()){
+                JSONObject properties = (JSONObject) iterator.next().get("properties");
+                if (properties != null){
+                    TimeStamp = (String)properties.get("timestamp");
+                    System.out.println(TimeStamp);
+                }
+            }
+            //OutputFile = OutputFile + TimeStamp;
+            String FileName = OutputFile + n;
+            System.out.println(OutputFile);
+            BufferedWriter bw = new BufferedWriter(new FileWriter(FileName));
+            bw.write(result.toString());
+            n++;
+            Thread.sleep(loop * 1000);
+        }   
     }
     
 }
