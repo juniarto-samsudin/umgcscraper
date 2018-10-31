@@ -23,11 +23,14 @@ import org.json.simple.JSONObject;
 import org.json.simple.parser.JSONParser;
 import org.json.simple.parser.ParseException;
 
+import org.apache.commons.daemon.Daemon;
+import org.apache.commons.daemon.DaemonContext;
+import org.apache.commons.daemon.DaemonInitException;
 /**
  *
  * @author samsudinj
  */
-public class Scraper {
+public class Scraper implements Daemon{
 
     /**
      * @param args the command line arguments
@@ -39,7 +42,7 @@ public class Scraper {
         // TODO code application logic here
         
         JSONParser parser = new JSONParser();
-        Object obj = parser.parse(new FileReader("scraper.conf"));
+        Object obj = parser.parse(new FileReader("/etc/scraper.conf"));
         JSONObject jsonObject = (JSONObject) obj;
         System.out.println(jsonObject);
         
@@ -82,13 +85,38 @@ public class Scraper {
                 }
             }
             //OutputFile = OutputFile + TimeStamp;
-            String FileName = OutputFile + n;
+            String FileName = OutputFile + TimeStamp;
             System.out.println(OutputFile);
             BufferedWriter bw = new BufferedWriter(new FileWriter(FileName));
             bw.write(result.toString());
             n++;
             Thread.sleep(loop * 1000);
         }   
+    }
+
+    @Override
+    public void init(DaemonContext dc) throws DaemonInitException, Exception {
+        //throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+        System.out.println("Initializing....");
+    }
+
+    @Override
+    public void start() throws Exception {
+        //throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+        System.out.println("Starting.....");
+        main(null);
+    }
+
+    @Override
+    public void stop() throws Exception {
+        //throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+        System.out.println("Stopping....");
+    }
+
+    @Override
+    public void destroy() {
+        //throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+        System.out.println("Done.");
     }
     
 }
