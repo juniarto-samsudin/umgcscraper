@@ -47,20 +47,22 @@ public class Scraper implements Daemon{
         // TODO code application logic here
         
         JSONParser parser = new JSONParser();
-        Object obj = parser.parse(new FileReader("/etc/scraper.conf"));
+        Object obj = parser.parse(new FileReader("scraper.conf"));
         JSONObject jsonObject = (JSONObject) obj;
         System.out.println(jsonObject);
         
         
-        String url = (String)jsonObject.get("url");
+        String url = (String)jsonObject.get("url1");
         String OutputFile = (String)jsonObject.get("outputfile");
         System.out.println(OutputFile);
         long loop = (Long)jsonObject.get("loop");
         
         Thread HeartBeatThread = new Thread(new HeartBeat());
-        Thread DownloaderThread = new Thread(new Downloader(url, OutputFile, loop));
+        //Thread DownloaderThread = new Thread(new Downloader(url, OutputFile, loop));
         HeartBeatThread.start();
-        DownloaderThread.start();
+        //DownloaderThread.start();
+        Thread TaxiAvailability = new Thread(new TaxiAvailability(url, OutputFile, loop));
+        TaxiAvailability.start();
        
         
         //String url = "https://api.data.gov.sg/v1/transport/taxi-availability";
