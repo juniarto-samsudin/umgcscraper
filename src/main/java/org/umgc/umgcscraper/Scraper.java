@@ -14,6 +14,8 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.Iterator;
 import java.util.Properties;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import static org.apache.http.HttpHeaders.USER_AGENT;
@@ -57,13 +59,17 @@ public class Scraper implements Daemon{
         System.out.println(OutputFile);
         long loop = (Long)jsonObject.get("loop");
         
-        Thread HeartBeatThread = new Thread(new HeartBeat());
+        //Thread HeartBeatThread = new Thread(new HeartBeat());
         //Thread DownloaderThread = new Thread(new Downloader(url, OutputFile, loop));
-        HeartBeatThread.start();
+        //HeartBeatThread.start();
         //DownloaderThread.start();
-        Thread TaxiAvailability = new Thread(new TaxiAvailability(url, OutputFile, loop));
-        TaxiAvailability.start();
+        //Thread TaxiAvailability = new Thread(new TaxiAvailability(url, OutputFile, loop));
+        //TaxiAvailability.start();
        
+        
+        ExecutorService executor = Executors.newFixedThreadPool(10);
+        executor.submit(new HeartBeat());
+        executor.submit(new TaxiAvailability(url, OutputFile, loop));
         
         //String url = "https://api.data.gov.sg/v1/transport/taxi-availability";
     

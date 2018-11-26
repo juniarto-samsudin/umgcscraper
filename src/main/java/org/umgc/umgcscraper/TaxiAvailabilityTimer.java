@@ -10,7 +10,8 @@ import java.io.BufferedWriter;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.util.Iterator;
+import java.sql.Timestamp;
+import java.text.SimpleDateFormat;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import static org.apache.http.HttpHeaders.USER_AGENT;
@@ -18,43 +19,43 @@ import org.apache.http.HttpResponse;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.impl.client.HttpClientBuilder;
+import org.apache.http.util.EntityUtils;
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
-import org.json.simple.parser.JSONParser;
 import org.json.simple.parser.ParseException;
-
-import java.sql.Timestamp;
-import java.util.Date;
-import java.text.SimpleDateFormat;
-import org.apache.http.util.EntityUtils;
 import org.umgc.umgcscraper.parser.TaxiAvailabilityParser;
 
 /**
  *
  * @author samsudinj
  */
-public class TaxiAvailability implements Runnable {
+public class TaxiAvailabilityTimer implements Runnable{
 
     private final String url;
     private final String OutputFile;
     private final long loop;
-    public TaxiAvailability(String url, String OutputFile, long loop){
+    private final int SampleNo;
+    public TaxiAvailabilityTimer(String url, String OutputFile, long loop, int SampleNo){
         this.url = url;
         this.OutputFile = OutputFile;
         this.loop = loop;
+        this.SampleNo = SampleNo;
     }
+    
     @Override
     public void run() {
         //throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
-        HttpClient client = HttpClientBuilder.create().build();
-            HttpGet request = new HttpGet(url);    
-            request.addHeader("User-Agent", USER_AGENT);
-            request.addHeader("AccountKey","WT9HkF2lS6S7qfL1u6IOCA==");
-            request.addHeader("accept","application/json");
+            HttpClient client = HttpClientBuilder.create().build();
             int n = 0;
+            int i = 0;
             int bufferSize = 16 *1024;
-            while(true){
+            while(i < SampleNo){
                 try {
+                    String urlAddress = url + "?$skip=0";
+                    HttpGet request = new HttpGet(urlAddress);    
+                    request.addHeader("User-Agent", USER_AGENT);
+                    request.addHeader("AccountKey","WT9HkF2lS6S7qfL1u6IOCA==");
+                    request.addHeader("accept","application/json");
                     HttpResponse response = client.execute(request);
                     System.out.println("Response Code: " + response.getStatusLine().getStatusCode());
                     BufferedReader rd = new BufferedReader(new InputStreamReader(response.getEntity().getContent()), bufferSize);
@@ -95,6 +96,7 @@ public class TaxiAvailability implements Runnable {
                     bw.write(result.toString());
                     bw.close();
                     n++;
+                    i++;
                     Thread.sleep(loop * 1000);
                 } catch (IOException | InterruptedException ex) {
                     Logger.getLogger(Downloader.class.getName()).log(Level.SEVERE, null, ex);
@@ -102,9 +104,6 @@ public class TaxiAvailability implements Runnable {
                 Logger.getLogger(TaxiAvailability.class.getName()).log(Level.SEVERE, null, ex);
             }
         }
-    
-    
-    
     
     }
     
