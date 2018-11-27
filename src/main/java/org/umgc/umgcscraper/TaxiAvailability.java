@@ -37,23 +37,25 @@ public class TaxiAvailability implements Runnable {
 
     private final String url;
     private final String OutputFile;
-    private final long loop;
-    public TaxiAvailability(String url, String OutputFile, long loop){
+    private int skip;
+    private int contSignal;
+    
+    public TaxiAvailability(String url, int skip, String OutputFile, int contSignal){
         this.url = url;
         this.OutputFile = OutputFile;
-        this.loop = loop;
+        this.skip = skip;
+        this.contSignal = contSignal;
     }
     @Override
     public void run() {
-        //throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
-        HttpClient client = HttpClientBuilder.create().build();
-            HttpGet request = new HttpGet(url);    
+            HttpClient client = HttpClientBuilder.create().build();
+            HttpGet request = new HttpGet(url+Integer.toString(skip));    
             request.addHeader("User-Agent", USER_AGENT);
             request.addHeader("AccountKey","WT9HkF2lS6S7qfL1u6IOCA==");
             request.addHeader("accept","application/json");
             int n = 0;
             int bufferSize = 16 *1024;
-            while(true){
+            //while(true){
                 try {
                     HttpResponse response = client.execute(request);
                     System.out.println("Response Code: " + response.getStatusLine().getStatusCode());
@@ -69,43 +71,24 @@ public class TaxiAvailability implements Runnable {
                     
                     TaxiAvailabilityParser theParser = new TaxiAvailabilityParser(result.toString());
                     System.out.println("Number of Position: " + theParser.getNumberOfPosition());
-                    /*
-                    JSONParser ResultParser = new JSONParser();
-                    Object ResultObject  = ResultParser.parse(result.toString());
-                    JSONObject ResultJsonObject = (JSONObject)ResultObject;
-                    JSONArray FeaturesArray = (JSONArray)ResultJsonObject.get("features");
-                    Iterator<JSONObject> iterator = FeaturesArray.iterator();
-                    String TimeStamp="";
-                    while(iterator.hasNext()){
-                        JSONObject properties = (JSONObject) iterator.next().get("properties");
-                        if (properties != null){
-                            TimeStamp = (String)properties.get("timestamp");
-                            System.out.println(TimeStamp);
-                        }
+                    if (theParser.getNumberOfPosition() < 500){
+                            contSignal = 0;
                     }
-                    */
+                    if (theParser.getNumberOfPosition() != 0){
+                        Timestamp ts = new Timestamp(System.currentTimeMillis());
+                        SimpleDateFormat sdf = new SimpleDateFormat("yyyy.MM.dd.HH.mm.SS");
                     
-                    Timestamp ts = new Timestamp(System.currentTimeMillis());
-                    SimpleDateFormat sdf = new SimpleDateFormat("yyyy.MM.dd.HH.mm.SS");
-                    
-                    String TimeStamp = sdf.format(ts);
-                    String FileName = OutputFile + TimeStamp;
-                    System.out.println(OutputFile);
-                    BufferedWriter bw = new BufferedWriter(new FileWriter(FileName), 16*1024);
-                    bw.write(result.toString());
-                    bw.close();
-                    n++;
-                    Thread.sleep(loop * 1000);
-                } catch (IOException | InterruptedException ex) {
-                    Logger.getLogger(Downloader.class.getName()).log(Level.SEVERE, null, ex);
-                } catch (ParseException ex) {
-                Logger.getLogger(TaxiAvailability.class.getName()).log(Level.SEVERE, null, ex);
-            }
-        }
-    
-    
-    
-    
+                        String TimeStamp = sdf.format(ts);
+                        String FileName = OutputFile + TimeStamp + ".skip" + Integer.toString(skip);
+                        System.out.println(OutputFile);
+                        BufferedWriter bw = new BufferedWriter(new FileWriter(FileName), 16*1024);
+                        bw.write(result.toString());
+                        bw.close();
+                        n++;
+                    }
+                } catch (IOException | ParseException ex) { 
+                    Logger.getLogger(TaxiAvailability.class.getName()).log(Level.SEVERE, null, ex);
+                }
     }
     
 }

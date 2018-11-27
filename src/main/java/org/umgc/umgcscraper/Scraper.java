@@ -12,18 +12,20 @@ import java.io.FileWriter;
 
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.sql.Timestamp;
+import java.text.SimpleDateFormat;
 import java.util.Iterator;
 import java.util.Properties;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import static org.apache.http.HttpHeaders.USER_AGENT;
-import org.apache.http.HttpResponse;
-import org.apache.http.client.HttpClient;
-import org.apache.http.client.methods.HttpGet;
-import org.apache.http.impl.client.HttpClientBuilder;
-import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
 import org.json.simple.parser.JSONParser;
 import org.json.simple.parser.ParseException;
@@ -44,9 +46,11 @@ public class Scraper implements Daemon{
      * @throws java.io.IOException
      * @throws org.json.simple.parser.ParseException
      * @throws java.lang.InterruptedException
+     * @throws java.util.concurrent.ExecutionException
      */
-    public static void main(String[] args) throws IOException, ParseException, InterruptedException {
-        // TODO code application logic here
+    
+    
+    public static void main(String[] args) throws IOException, ParseException, InterruptedException, ExecutionException {
         
         JSONParser parser = new JSONParser();
         Object obj = parser.parse(new FileReader("scraper.conf"));
@@ -59,150 +63,78 @@ public class Scraper implements Daemon{
         System.out.println(OutputFile);
         long loop = (Long)jsonObject.get("loop");
         
-        //Thread HeartBeatThread = new Thread(new HeartBeat());
-        //Thread DownloaderThread = new Thread(new Downloader(url, OutputFile, loop));
-        //HeartBeatThread.start();
-        //DownloaderThread.start();
-        //Thread TaxiAvailability = new Thread(new TaxiAvailability(url, OutputFile, loop));
-        //TaxiAvailability.start();
-       
+        int contSignal;
         
-        ExecutorService executor = Executors.newFixedThreadPool(10);
-        executor.submit(new HeartBeat());
-        executor.submit(new TaxiAvailability(url, OutputFile, loop));
+        ExecutorService HeartbeatExecutor = Executors.newFixedThreadPool(1);
+        HeartbeatExecutor.submit(new HeartBeat());
         
-        //String url = "https://api.data.gov.sg/v1/transport/taxi-availability";
-    
-        /*
-        int n=0;
+        
         while(true){
-            HttpClient client = HttpClientBuilder.create().build();
-            HttpGet request = new HttpGet(url);    
-            request.addHeader("User-Agent", USER_AGENT);
-            request.addHeader("AccountKey","WT9HkF2lS6S7qfL1u6IOCA==");
-            request.addHeader("accept","application/json");
-            HttpResponse response = client.execute(request);
-            System.out.println("Response Code: " + response.getStatusLine().getStatusCode());
-        
-            BufferedReader rd = new BufferedReader(new InputStreamReader(response.getEntity().getContent()));
-            StringBuilder result = new StringBuilder();
-            String line = ""  ;
-            while ((line = rd.readLine()) != null){
-                result.append(line);
-            }
-            JSONParser ResultParser = new JSONParser();
-            Object ResultObject  = ResultParser.parse(result.toString());
-            JSONObject ResultJsonObject = (JSONObject)ResultObject;
-            JSONArray FeaturesArray = (JSONArray)ResultJsonObject.get("features");
-            Iterator<JSONObject> iterator = FeaturesArray.iterator();
-            String TimeStamp="";
-            while(iterator.hasNext()){
-                JSONObject properties = (JSONObject) iterator.next().get("properties");
-                if (properties != null){
-                    TimeStamp = (String)properties.get("timestamp");
-                    System.out.println(TimeStamp);
+            Timestamp ts = new Timestamp(System.currentTimeMillis());
+            SimpleDateFormat sdf = new SimpleDateFormat("yyyy.MM.dd.HH.mm.ss");
+            String sts = sdf.format(ts);
+            System.out.println(sts);
+            String arr_ts[] = sts.split("\\.");
+            int array_size = arr_ts.length;
+            System.out.println(array_size);
+            System.out.println(arr_ts[array_size - 1]);
+            int ss = Integer.parseInt(arr_ts[array_size - 1]);
+            int begin = 0;
+            int end = 2000 ;
+            if ( ss > 0 && ss < 10){
+                contSignal = 1;
+                System.out.println("DOWNLOAD!!!!");
+                String DirPath = OutputFile + sts + "/";
+                System.out.println(DirPath);
+                Path path = Paths.get(DirPath);
+                Files.createDirectories(path);
+                while(contSignal == 1){
+                    ExecutorService executor = Executors.newFixedThreadPool(10);
+                    for(int i = begin; i <= end; i=i+500){
+                        System.out.println(i);
+                        Future<Integer> future = executor.submit(new TaxiAvailabilityCallable(url, i,  DirPath, contSignal));
+                        contSignal = future.get();
+                    }
+                    executor.shutdown();
+                    executor.awaitTermination(5, TimeUnit.SECONDS);
+                    begin = end + 500;
+                    end = begin + 2500;
+                    Thread.sleep(10000);
                 }
+            } else{
+                System.out.println("NO!");
             }
-            //OutputFile = OutputFile + TimeStamp;
-            String FileName = OutputFile + TimeStamp;
-            System.out.println(OutputFile);
-            BufferedWriter bw = new BufferedWriter(new FileWriter(FileName));
-            bw.write(result.toString());
-            n++;
-            Thread.sleep(loop * 1000);
-        }*/   
+            Thread.sleep(5000);
+        } 
     }
 
     @Override
     public void init(DaemonContext dc) throws DaemonInitException, Exception {
-        //throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
         System.out.println("Initializing....");
     }
 
     @Override
     public void start() throws Exception {
-        //throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
         System.out.println("Starting.....");
         main(null);
     }
 
     @Override
     public void stop() throws Exception {
-        //throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
         System.out.println("Stopping....");
     }
 
     @Override
     public void destroy() {
-        //throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
         System.out.println("Done.");
     }
     
 }
-class Downloader implements Runnable{
-    String url;
-    String OutputFile;
-    long loop;
-    
-    public Downloader(String url, String OutputFile, long loop){
-        this.url = url;
-        this.OutputFile = OutputFile;
-        this.loop = loop;
-    }
-    @Override
-    public void run() {
-        //throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
-            HttpClient client = HttpClientBuilder.create().build();
-            HttpGet request = new HttpGet(url);    
-            request.addHeader("User-Agent", USER_AGENT);
-            request.addHeader("AccountKey","WT9HkF2lS6S7qfL1u6IOCA==");
-            request.addHeader("accept","application/json");
-            int n = 0;
-            while(true){
-                try {
-                    HttpResponse response = client.execute(request);
-                    System.out.println("Response Code: " + response.getStatusLine().getStatusCode());
-                    BufferedReader rd = new BufferedReader(new InputStreamReader(response.getEntity().getContent()));
-                    StringBuilder result = new StringBuilder();
-                    String line = ""  ;
-                    while ((line = rd.readLine()) != null){
-                        result.append(line);
-                    }
-                    JSONParser ResultParser = new JSONParser();
-                    Object ResultObject  = ResultParser.parse(result.toString());
-                    JSONObject ResultJsonObject = (JSONObject)ResultObject;
-                    JSONArray FeaturesArray = (JSONArray)ResultJsonObject.get("features");
-                    Iterator<JSONObject> iterator = FeaturesArray.iterator();
-                    String TimeStamp="";
-                    while(iterator.hasNext()){
-                        JSONObject properties = (JSONObject) iterator.next().get("properties");
-                        if (properties != null){
-                            TimeStamp = (String)properties.get("timestamp");
-                            System.out.println(TimeStamp);
-                        }
-                    }
-                    //OutputFile = OutputFile + TimeStamp;
-                    String FileName = OutputFile + TimeStamp;
-                    System.out.println(OutputFile);
-                    BufferedWriter bw = new BufferedWriter(new FileWriter(FileName));
-                    bw.write(result.toString());
-                    n++;
-                    Thread.sleep(loop * 1000);
-                } catch (IOException | ParseException | InterruptedException ex) {
-                    Logger.getLogger(Downloader.class.getName()).log(Level.SEVERE, null, ex);
-                }
-        }
-    }
- }
-    
-
-
 
 
 class HeartBeat implements Runnable{
     @Override
     public void run() {
-        //throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
         String key = "Key1";
         String value = "Value1";
         String topicName = "HeartBeat";

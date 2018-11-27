@@ -98,13 +98,14 @@ public class TaxiAvailabilityTimer implements Runnable{
                     n++;
                     i++;
                     Thread.sleep(loop * 1000);
-                } catch (IOException | InterruptedException ex) {
-                    Logger.getLogger(Downloader.class.getName()).log(Level.SEVERE, null, ex);
+                } catch (InterruptedException ex) {
+                    Logger.getLogger(TaxiAvailabilityTimer.class.getName()).log(Level.SEVERE, null, ex);
+                } catch (IOException ex) {
+                    Logger.getLogger(TaxiAvailabilityTimer.class.getName()).log(Level.SEVERE, null, ex);
                 } catch (ParseException ex) {
-                Logger.getLogger(TaxiAvailability.class.getName()).log(Level.SEVERE, null, ex);
+                    Logger.getLogger(TaxiAvailabilityTimer.class.getName()).log(Level.SEVERE, null, ex);
+                } 
             }
         }
     
     }
-    
-}
