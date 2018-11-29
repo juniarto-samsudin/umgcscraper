@@ -17,7 +17,9 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.sql.Timestamp;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -53,7 +55,7 @@ public class Scraper implements Daemon{
     public static void main(String[] args) throws IOException, ParseException, InterruptedException, ExecutionException {
         
         JSONParser parser = new JSONParser();
-        Object obj = parser.parse(new FileReader("scraper.conf"));
+        Object obj = parser.parse(new FileReader("sb-scraper.conf"));
         JSONObject jsonObject = (JSONObject) obj;
         System.out.println(jsonObject);
         
@@ -68,7 +70,7 @@ public class Scraper implements Daemon{
         ExecutorService HeartbeatExecutor = Executors.newFixedThreadPool(1);
         HeartbeatExecutor.submit(new HeartBeat());
         
-        
+        List<Integer> SkipList = new ArrayList<>();
         while(true){
             Timestamp ts = new Timestamp(System.currentTimeMillis());
             SimpleDateFormat sdf = new SimpleDateFormat("yyyy.MM.dd.HH.mm.ss");
@@ -78,10 +80,15 @@ public class Scraper implements Daemon{
             int array_size = arr_ts.length;
             System.out.println(array_size);
             System.out.println(arr_ts[array_size - 1]);
+            System.out.println(arr_ts[array_size - 2]);
             int ss = Integer.parseInt(arr_ts[array_size - 1]);
+            int mm = Integer.parseInt(arr_ts[array_size - 2]);
+            System.out.println(mm);
             int begin = 0;
-            int end = 2000 ;
-            if ( ss > 0 && ss < 10){
+            int end = 4500 ;
+            int minmod = mm%5;
+            if ( ((minmod == 0) && (ss > 10))  
+                ){
                 contSignal = 1;
                 System.out.println("DOWNLOAD!!!!");
                 String DirPath = OutputFile + sts + "/";
@@ -92,22 +99,56 @@ public class Scraper implements Daemon{
                     ExecutorService executor = Executors.newFixedThreadPool(10);
                     for(int i = begin; i <= end; i=i+500){
                         System.out.println(i);
-                        Future<Integer> future = executor.submit(new TaxiAvailabilityCallable(url, i,  DirPath, contSignal));
-                        contSignal = future.get();
+                        Future<SpeedBandThreadResult> future = executor.submit(new SpeedBandCallable(url, i,  DirPath, contSignal));
+                        SpeedBandThreadResult result = future.get();
+                        contSignal = result.getContSignal();
+                        if (result.getIsSorted() == true){
+                            System.out.println("GOT SORTED FILENAME!!!");
+                            System.out.println(result.getFileName());
+                            SkipList.add(result.getSkip());
+                            Thread.sleep(1000);
+                        }
                     }
                     executor.shutdown();
                     executor.awaitTermination(5, TimeUnit.SECONDS);
                     begin = end + 500;
-                    end = begin + 2500;
-                    Thread.sleep(10000);
+                    end = begin + 4500;
+                    
+                    System.out.println("Number of Sorted Files: " + SkipList.size());
+                    for (int temp: SkipList){
+                        System.out.println(temp);
+                    }
+                    Thread.sleep(5000);
+                }
+                if (SkipList.size() > 0){
+                    ProcessAgain(SkipList, url, DirPath);
                 }
             } else{
                 System.out.println("NO!");
             }
             Thread.sleep(5000);
-        } 
+        }
+        
+        
     }
 
+    private static void ProcessAgain(List<Integer> SkipList, String url, String DirPath) throws InterruptedException, ExecutionException{
+        System.out.println("Process Again:" + SkipList.size());
+        List<Integer> tempList = new ArrayList<>();
+        ExecutorService executor = Executors.newFixedThreadPool(SkipList.size());
+        for (int temp: SkipList){
+            Future<SpeedBandThreadResult> future = executor.submit(new SpeedBandCallable(url, temp,  DirPath, 0));
+            SpeedBandThreadResult result = future.get();
+            if (result.getIsSorted() == true){
+                tempList.add(result.getSkip());
+            }
+        }
+        if (tempList.size() > 0){
+                ProcessAgain(tempList, url, DirPath);
+        }
+        
+    }
+ 
     @Override
     public void init(DaemonContext dc) throws DaemonInitException, Exception {
         System.out.println("Initializing....");
