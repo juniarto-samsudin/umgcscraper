@@ -137,11 +137,12 @@ public class Scraper implements Daemon{
                     PaginationResult<TaxiAvailabilityDocumentJson> pres = future.join();
                     int size = pres.size(); //Total number of pages returned.
                     List<TaxiAvailabilityDocumentJson> allDocs = pres.getResponseData(); //Get all the response data in a list.
+                    
+                    String DirPath = createDirectory(OutputFile);
                     for (int i = 0; i < size; i++) {
 			int pageNo = pres.getPageNumber(i); //Usually pageNo==i, but sometimes you request specific pages only.
-                        System.out.println(pres.getResponse(i).getResponseBody());
 			TaxiAvailabilityDocumentJson doc = allDocs.get(i);
-                        writeFile(pres.getResponse(i).getResponseBody(), OutputFile, i);
+                        writeFile(pres.getResponse(i).getResponseBody(), DirPath, i);
 			System.out.println(String.format("Page %d: %d taxis", pageNo, doc.getValue().size()));
                     }
                     System.out.println("Results processed.");
@@ -170,6 +171,17 @@ public class Scraper implements Daemon{
         }
     }
     
+    private static String createDirectory(String OutputFile) throws IOException{
+        Timestamp ts = new Timestamp(System.currentTimeMillis());
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy.MM.dd.HH.mm.ss");
+        String sts = sdf.format(ts);
+        String DirPath = OutputFile + sts + "/";
+        System.out.println("DirPath: " + DirPath);
+        Path path = Paths.get(DirPath);
+        Files.createDirectories(path);
+        return DirPath;
+    }
+    
     @Override
     public void init(DaemonContext dc) throws DaemonInitException, Exception {
         System.out.println("Initializing....");
@@ -192,7 +204,6 @@ public class Scraper implements Daemon{
     }
     
 }
-
 
 class HeartBeat implements Runnable{
     @Override
