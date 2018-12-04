@@ -162,6 +162,8 @@ public class Scraper implements Daemon{
                     List<SpeedBandDocumentJson> allDocs = pres.getResponseData(); //Get all the response data in a list.
                     int totalLinkCount = 0; //Count the total number of link records.
                     Set<Long> linkSet = new LinkedHashSet<>(); //Track all the observed link ids.
+                    
+                    String DirPath = createDirectory(OutputFile);
                     for (int i = 0; i < size; i++) {
 			int pageNo = pres.getPageNumber(i); //Usually pageNo==i, but sometimes you request specific pages only.
 			SpeedBandDocumentJson doc = allDocs.get(i);
@@ -170,9 +172,55 @@ public class Scraper implements Daemon{
 			for (SpeedBandRecordJson link : doc.getValue()) {
                             linkSet.add(link.getLinkId()); //Add the link id to the link set, to trace.
 			}
+                        if ( i == (size-1)){ // LASTPAGE
+                            //CHECK LASTPAGE
+                            if (checkLastPageOK(linkSet, totalLinkCount, deadlineMillis, pres, preq, client, DirPath)){ // LASTPAGE HAS NO PROBLEM
+                                writeFile(pres.getResponse(i).getResponseBody(), DirPath, i);
+                                System.out.println("FULL SET COMPLETED!!!!!");
+                            }
+                        }else{//NOT LASTPAGE, JUST PROCEED...
+                            writeFile(pres.getResponse(i).getResponseBody(), DirPath, i);
+                        }
                     }
-                    
-                    if (linkSet.size() < totalLinkCount) {
+                    //If you reach here, allResults & allDocs are correctly fetched, and you can do your own work on them (e.g., publish to Kafka).
+                    System.out.println("Results processed.");
+                    System.out.println();
+                    System.out.println();    
+                }catch (CompletionException e) {
+                    System.err.println("An error was encountered with our scraper.");
+                    e.printStackTrace();
+                }
+            }
+        }
+        //ExecutorService HeartbeatExecutor = Executors.newFixedThreadPool(1);
+        //HeartbeatExecutor.submit(new HeartBeat());
+    }
+    
+    private static String createDirectory(String OutputFile) throws IOException{
+        Timestamp ts = new Timestamp(System.currentTimeMillis());
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy.MM.dd.HH.mm.ss");
+        String sts = sdf.format(ts);
+        String DirPath = OutputFile + sts + "/";
+        System.out.println("DirPath: " + DirPath);
+        Path path = Paths.get(DirPath);
+        Files.createDirectories(path);
+        return DirPath;
+    }
+    
+    private static void writeFile(String content, String OutputFile, int i) throws IOException{
+        Timestamp ts = new Timestamp(System.currentTimeMillis());
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy.MM.dd.HH.mm.SS");
+        String TimeStamp = sdf.format(ts);
+        String FileName = OutputFile + TimeStamp + ".file" + Integer.toString(i);
+        System.out.println(OutputFile);
+        try (BufferedWriter bw = new BufferedWriter(new FileWriter(FileName), 16*1024)) {
+            bw.write(content);
+        }
+    }
+    
+    private static boolean checkLastPageOK(Set<Long> linkSet, int totalLinkCount, long deadlineMillis, PaginationResult<SpeedBandDocumentJson> pres,
+                                            PaginationRequest<SpeedBandDocumentJson> preq, ScraperClient client, String DirPath ) throws IOException{
+        if (linkSet.size() < totalLinkCount) {
 			System.out.println("Last page needs to be refreshed.");
 			while (true) {
                             //The last page is actually coincidentally sorted. Maybe because the last page size is very small.
@@ -201,92 +249,22 @@ public class Scraper implements Daemon{
                             } else {
 				//We are done.
 				//Replace our previous allResults and allDocs lists with copied arrays incorporating our new last page.
-				allResults = new ArrayList<>(allResults);
-				allResults.set(allResults.size()-1, result);
-				allDocs = new ArrayList<>(allDocs);
-				allDocs.set(allDocs.size()-1, doc); 
+				
+                                //allResults = new ArrayList<>(allResults);
+				//allResults.set(allResults.size()-1, result);
+				//allDocs = new ArrayList<>(allDocs);
+				//allDocs.set(allDocs.size()-1, doc); 
+                                writeFile(result.getResponse().getResponseBody(),DirPath,pres.size()-1);
 				System.out.println("Full set of unsorted links acquired.");
 				break;
                             }
+                            
+                            
 			}//End While
-                    }//End If
-                    //If you reach here, allResults & allDocs are correctly fetched, and you can do your own work on them (e.g., publish to Kafka).
-                    System.out.println("Results processed.");
-                    System.out.println();
-                    System.out.println();    
-                }catch (CompletionException e) {
-                    System.err.println("An error was encountered with our scraper.");
-                    e.printStackTrace();
-                }
-            }
+                        return false;
+                    }else{
+                        return true;
         }
-        
-        
-        int contSignal = 0;
-        
-        ExecutorService HeartbeatExecutor = Executors.newFixedThreadPool(1);
-        HeartbeatExecutor.submit(new HeartBeat());
-        
-        List<Integer> SkipList = new ArrayList<>();
-        while(true){
-            Timestamp ts = new Timestamp(System.currentTimeMillis());
-            SimpleDateFormat sdf = new SimpleDateFormat("yyyy.MM.dd.HH.mm.ss");
-            String sts = sdf.format(ts);
-            System.out.println(sts);
-            String arr_ts[] = sts.split("\\.");
-            int array_size = arr_ts.length;
-            System.out.println(array_size);
-            System.out.println(arr_ts[array_size - 1]);
-            System.out.println(arr_ts[array_size - 2]);
-            int ss = Integer.parseInt(arr_ts[array_size - 1]);
-            int mm = Integer.parseInt(arr_ts[array_size - 2]);
-            System.out.println(mm);
-            int begin = 0;
-            int end = 4500 ;
-            int minmod = mm%5;
-            if ( ((minmod == 0) && (ss > 10))  
-                ){
-                //contSignal = 1;
-                System.out.println("DOWNLOAD!!!!");
-                String DirPath = OutputFile + sts + "/";
-                System.out.println(DirPath);
-                Path path = Paths.get(DirPath);
-                Files.createDirectories(path);
-                while(contSignal == 1){
-                    ExecutorService executor = Executors.newFixedThreadPool(10);
-                    for(int i = begin; i <= end; i=i+500){
-                        System.out.println(i);
-                        Future<SpeedBandThreadResult> future = executor.submit(new SpeedBandCallable(url, i,  DirPath, contSignal));
-                        SpeedBandThreadResult result = future.get();
-                        contSignal = result.getContSignal();
-                        if (result.getIsSorted() == true){
-                            System.out.println("GOT SORTED FILENAME!!!");
-                            System.out.println(result.getFileName());
-                            SkipList.add(result.getSkip());
-                            Thread.sleep(1000);
-                        }
-                    }
-                    executor.shutdown();
-                    executor.awaitTermination(5, TimeUnit.SECONDS);
-                    begin = end + 500;
-                    end = begin + 4500;
-                    
-                    System.out.println("Number of Sorted Files: " + SkipList.size());
-                    for (int temp: SkipList){
-                        System.out.println(temp);
-                    }
-                    Thread.sleep(5000);
-                }
-                if (SkipList.size() > 0){
-                    ProcessAgain(SkipList, url, DirPath);
-                }
-            } else{
-                System.out.println("NO!");
-            }
-            Thread.sleep(5000);
-        }
-        
-        
     }
 
     private static void ProcessAgain(List<Integer> SkipList, String url, String DirPath) throws InterruptedException, ExecutionException{
