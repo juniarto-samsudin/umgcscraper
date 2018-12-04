@@ -5,6 +5,12 @@
  */
 package org.umgc.umgcscraper;
 
+import astar.ihpc.umgc.umgcscraper.util.PaginationRequest;
+import astar.ihpc.umgc.umgcscraper.util.PaginationResult;
+import astar.ihpc.umgc.umgcscraper.util.RealTimeStepper;
+import astar.ihpc.umgc.umgcscraper.util.ScraperClient;
+import astar.ihpc.umgc.umgcscraper.util.ScraperResult;
+import astar.ihpc.umgc.umgcscraper.util.ScraperUtil;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.FileReader;
@@ -17,15 +23,28 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.sql.Timestamp;
 import java.text.SimpleDateFormat;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Properties;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.function.BiPredicate;
+import java.util.function.Function;
+import java.util.function.IntFunction;
+import java.util.function.Predicate;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.json.simple.JSONObject;
@@ -38,6 +57,7 @@ import org.apache.commons.daemon.DaemonInitException;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.asynchttpclient.Request;
 /**
  *
  * @author samsudinj
@@ -60,12 +80,149 @@ public class Scraper implements Daemon{
         System.out.println(jsonObject);
         
         
-        String url = (String)jsonObject.get("url1");
         String OutputFile = (String)jsonObject.get("outputfile");
         System.out.println(OutputFile);
         long loop = (Long)jsonObject.get("loop");
         
-        int contSignal;
+        final String accountKey = (String)jsonObject.get("accountkey");
+        final ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(1);
+        try (ScraperClient client = ScraperUtil.createScraperClient(8, 50)){
+            final long startTimeMillis = ScraperUtil.convertToTimeMillis(2018, 1, 1, 0, 0, 15, ZoneId.of("Asia/Singapore")); //+15 seconds to be safe.
+            final long timeStepMillis = 300_000; //every 5 min
+            final long maxOvershootMillis = 120_000; //allow to run up to 2 minutes late.
+            final long maxRandomDelayMillis = 5_000; //random delay unchanged 5 seconds is good.
+            
+            final long maxRuntimeMillis = (4*60+30) * 1000L; 
+			
+            final RealTimeStepper stepper = ScraperUtil.createRealTimeStepper(startTimeMillis, timeStepMillis, maxOvershootMillis, maxRandomDelayMillis);
+            final DateTimeFormatter dateTimeFmt = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
+            
+            final IntFunction<Request> pageCreateFunction = pageNo->{
+                String url = String.format("http://datamall2.mytransport.sg/ltaodataservice/TrafficSpeedBandsv2?$skip=%d", pageNo * 500);
+                Request req = ScraperUtil.createRequestBuilder().setUrl(url).setHeader("AccountKey", accountKey).build();
+		return req;
+            };
+            
+            final Function<Request, CompletableFuture<ScraperResult<SpeedBandDocumentJson>>> pageRequestFunction = req -> {
+		return client.requestJson(req, SpeedBandDocumentJson.class);
+            };
+            
+            final int batchSize = client.getMaxConcurrentRequests() * 2;
+            
+            final Predicate<ScraperResult<SpeedBandDocumentJson>> lastPageTest = (res)->res.getResponseData().getValue().size() < 500;
+            final Predicate<ScraperResult<SpeedBandDocumentJson>> emptyPageTest = (res)->res.getResponseData().getValue().isEmpty();
+            
+            final Predicate<ScraperResult<SpeedBandDocumentJson>> goodResultTest = (res)->{
+                    List<SpeedBandRecordJson> list = res.getResponseData().getValue();
+                    if (list.size() <= 1) return true; //Good if zero or 1 record (we cannot test).
+                    for (int i = 1; i < list.size(); i++) {
+			long v1 = list.get(i-1).getLinkId();
+			long v2 = list.get(i).getLinkId();
+			if (Long.compare(v1, v2) > 0) {
+                            //The previous is bigger than the next! Out of order which is correct!
+                            return true;
+			}
+                    }
+                    //The page is fully sorted, this is bad!
+                    if (list.size() < 50) {
+			//This is the last page, give it a chance. 
+			//Maybe through some random luck, the unsorted set is actually also sorted by coincidence.
+			//Of course if the list is >50 size then it is extremely unlikely that we are mistaken.
+			return true;
+                    } else {
+			return false; //Impossible for so many records to be sorted by coincidence.
+                    }
+            };
+            
+            final BiPredicate<Request, Throwable> retryOnErrorTest = (req, t)->false;
+            final int maxRetries = 20;
+            
+            final int retryMinDelayMillis = 1000;
+            final int retryMaxDelayMillis = 20000;
+            
+            final PaginationRequest<SpeedBandDocumentJson> preq = new PaginationRequest<>(
+		pageCreateFunction, pageRequestFunction, scheduler, batchSize, 
+		lastPageTest, emptyPageTest, goodResultTest, retryOnErrorTest, maxRetries, retryMinDelayMillis, retryMaxDelayMillis
+            );
+            
+            while (true){
+                try{
+                    System.out.println("Waiting for next step...");
+                    stepper.nextStep(); //Sleep until the next step.
+                    System.out.println("Step triggered: " + dateTimeFmt.format(LocalDateTime.now()));
+					
+                    //Determine the deadline to finish. If we are behind this deadline, we must stop.
+                    long deadlineMillis = stepper.calcCurrentStepMillis() + maxRuntimeMillis;
+                    
+                    //Submit the pagination request.
+                    CompletableFuture<PaginationResult<SpeedBandDocumentJson>> future = preq.requestPages(deadlineMillis);
+                    PaginationResult<SpeedBandDocumentJson> pres = future.join();
+                    int size = pres.size(); //Total number of pages returned.
+                    List<ScraperResult<SpeedBandDocumentJson>> allResults = pres.getScraperResults();
+                    List<SpeedBandDocumentJson> allDocs = pres.getResponseData(); //Get all the response data in a list.
+                    int totalLinkCount = 0; //Count the total number of link records.
+                    Set<Long> linkSet = new LinkedHashSet<>(); //Track all the observed link ids.
+                    for (int i = 0; i < size; i++) {
+			int pageNo = pres.getPageNumber(i); //Usually pageNo==i, but sometimes you request specific pages only.
+			SpeedBandDocumentJson doc = allDocs.get(i);
+			System.out.println(String.format("Page %d: %d links", pageNo, doc.getValue().size()));
+			totalLinkCount += doc.getValue().size();
+			for (SpeedBandRecordJson link : doc.getValue()) {
+                            linkSet.add(link.getLinkId()); //Add the link id to the link set, to trace.
+			}
+                    }
+                    
+                    if (linkSet.size() < totalLinkCount) {
+			System.out.println("Last page needs to be refreshed.");
+			while (true) {
+                            //The last page is actually coincidentally sorted. Maybe because the last page size is very small.
+                            //We need to keep refreshing the last page until we get the links we want.
+                            if (System.currentTimeMillis() < deadlineMillis) {
+				throw new CompletionException(new TimeoutException("deadline exceeded on last page retry"));
+                            }
+                            //Refresh the last page manually.
+                            int lastPageNo = pres.getPageNumber(pres.size()-1);
+                            Request lastPageReq = preq.createPage(lastPageNo);
+                            CompletableFuture<ScraperResult<SpeedBandDocumentJson>> lastPageFuture = client.requestJson(lastPageReq, SpeedBandDocumentJson.class);
+                            ScraperResult<SpeedBandDocumentJson> result = lastPageFuture.join();
+                            SpeedBandDocumentJson doc = result.getResponseData();
+                            for (SpeedBandRecordJson link : doc.getValue()) {
+				linkSet.add(link.getLinkId()); //Add the link id to the link set, to trace.
+                            }
+                            if (linkSet.size() < totalLinkCount) {
+				//Still not done. We haven't got the right last page.
+				//Sleep for 10 seconds and try again.
+				if (System.currentTimeMillis() + 10_000 > deadlineMillis) {
+                                    //Nevermind, not safe to sleep.
+                                    throw new CompletionException(new TimeoutException("deadline exceeded on last page retry"));
+				} else {
+                                    ScraperUtil.sleepFor(10_000);
+				}
+                            } else {
+				//We are done.
+				//Replace our previous allResults and allDocs lists with copied arrays incorporating our new last page.
+				allResults = new ArrayList<>(allResults);
+				allResults.set(allResults.size()-1, result);
+				allDocs = new ArrayList<>(allDocs);
+				allDocs.set(allDocs.size()-1, doc); 
+				System.out.println("Full set of unsorted links acquired.");
+				break;
+                            }
+			}//End While
+                    }//End If
+                    //If you reach here, allResults & allDocs are correctly fetched, and you can do your own work on them (e.g., publish to Kafka).
+                    System.out.println("Results processed.");
+                    System.out.println();
+                    System.out.println();    
+                }catch (CompletionException e) {
+                    System.err.println("An error was encountered with our scraper.");
+                    e.printStackTrace();
+                }
+            }
+        }
+        
+        
+        int contSignal = 0;
         
         ExecutorService HeartbeatExecutor = Executors.newFixedThreadPool(1);
         HeartbeatExecutor.submit(new HeartBeat());
@@ -89,7 +246,7 @@ public class Scraper implements Daemon{
             int minmod = mm%5;
             if ( ((minmod == 0) && (ss > 10))  
                 ){
-                contSignal = 1;
+                //contSignal = 1;
                 System.out.println("DOWNLOAD!!!!");
                 String DirPath = OutputFile + sts + "/";
                 System.out.println(DirPath);
