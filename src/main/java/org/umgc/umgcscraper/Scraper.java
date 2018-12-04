@@ -5,6 +5,12 @@
  */
 package org.umgc.umgcscraper;
 
+import astar.ihpc.umgc.umgcscraper.util.PaginationRequest;
+import astar.ihpc.umgc.umgcscraper.util.PaginationResult;
+import astar.ihpc.umgc.umgcscraper.util.RealTimeStepper;
+import astar.ihpc.umgc.umgcscraper.util.ScraperClient;
+import astar.ihpc.umgc.umgcscraper.util.ScraperResult;
+import astar.ihpc.umgc.umgcscraper.util.ScraperUtil;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.FileReader;
@@ -17,13 +23,25 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.sql.Timestamp;
 import java.text.SimpleDateFormat;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Properties;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BiPredicate;
+import java.util.function.Function;
+import java.util.function.IntFunction;
+import java.util.function.Predicate;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.json.simple.JSONObject;
@@ -36,6 +54,7 @@ import org.apache.commons.daemon.DaemonInitException;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.asynchttpclient.Request;
 /**
  *
  * @author samsudinj
@@ -53,61 +72,104 @@ public class Scraper implements Daemon{
     public static void main(String[] args) throws IOException, ParseException, InterruptedException, ExecutionException {
         
         JSONParser parser = new JSONParser();
-        Object obj = parser.parse(new FileReader("/etc/scraper.conf"));
+        Object obj = parser.parse(new FileReader("ta-scraper.conf"));
         JSONObject jsonObject = (JSONObject) obj;
         System.out.println(jsonObject);
         
-        
-        String url = (String)jsonObject.get("url1");
         String OutputFile = (String)jsonObject.get("outputfile");
         System.out.println(OutputFile);
         long loop = (Long)jsonObject.get("loop");
         
-        int contSignal;
+        String accountKey = (String)jsonObject.get("accountkey");
         
-        ExecutorService HeartbeatExecutor = Executors.newFixedThreadPool(1);
-        HeartbeatExecutor.submit(new HeartBeat());
+        final ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(1);
+        ScraperClient client = ScraperUtil.createScraperClient(8, 50);
         
+        final long startTimeMillis = ScraperUtil.convertToTimeMillis(2018, 1, 1, 0, 0, 0, ZoneId.of("Asia/Singapore"));
+        final long timeStepMillis = 60_000;
+        final long maxOvershootMillis = 20_000;
+        final long maxRandomDelayMillis = 5_000;
         
-        while(true){
-            Timestamp ts = new Timestamp(System.currentTimeMillis());
-            SimpleDateFormat sdf = new SimpleDateFormat("yyyy.MM.dd.HH.mm.ss");
-            String sts = sdf.format(ts);
-            System.out.println(sts);
-            String arr_ts[] = sts.split("\\.");
-            int array_size = arr_ts.length;
-            System.out.println(array_size);
-            System.out.println(arr_ts[array_size - 1]);
-            int ss = Integer.parseInt(arr_ts[array_size - 1]);
-            int begin = 0;
-            int end = 2000 ;
-            if ( ss > 0 && ss < 10){
-                contSignal = 1;
-                System.out.println("DOWNLOAD!!!!");
-                String DirPath = OutputFile + sts + "/";
-                System.out.println(DirPath);
-                Path path = Paths.get(DirPath);
-                Files.createDirectories(path);
-                while(contSignal == 1){
-                    ExecutorService executor = Executors.newFixedThreadPool(10);
-                    for(int i = begin; i <= end; i=i+500){
-                        System.out.println(i);
-                        Future<Integer> future = executor.submit(new TaxiAvailabilityCallable(url, i,  DirPath, contSignal));
-                        contSignal = future.get();
+        final long maxRuntimeMillis = 35_000; 
+        
+        final RealTimeStepper stepper = ScraperUtil.createRealTimeStepper(startTimeMillis, timeStepMillis, maxOvershootMillis, maxRandomDelayMillis);
+        final DateTimeFormatter dateTimeFmt = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
+        
+        final IntFunction<Request> pageCreateFunction = pageNo->{
+		String url = String.format("http://datamall2.mytransport.sg/ltaodataservice/Taxi-Availability?$skip=%d", pageNo * 500);
+		Request req = ScraperUtil.createRequestBuilder().setUrl(url).setHeader("AccountKey", accountKey).build();
+		return req;
+	};
+        
+        final Function<Request, CompletableFuture<ScraperResult<TaxiAvailabilityDocumentJson>>> pageRequestFunction = req -> {
+		return client.requestJson(req, TaxiAvailabilityDocumentJson.class);
+	};
+        
+        final int batchSize = client.getMaxConcurrentRequests() * 2;
+        
+        final Predicate<ScraperResult<TaxiAvailabilityDocumentJson>> lastPageTest = (res)->res.getResponseData().getValue().size() < 500;
+        
+        final Predicate<ScraperResult<TaxiAvailabilityDocumentJson>> emptyPageTest = (res)->res.getResponseData().getValue().isEmpty();
+        
+        final Predicate<ScraperResult<TaxiAvailabilityDocumentJson>> goodResultTest = (res)->true;
+        
+        final BiPredicate<Request, Throwable> retryOnErrorTest = (req, t)->true;
+        
+        final int maxRetries = 3;
+        
+        final int retryMinDelayMillis = 1000;
+        final int retryMaxDelayMillis = 3000;
+        
+        final PaginationRequest<TaxiAvailabilityDocumentJson> preq = new PaginationRequest<>(
+		pageCreateFunction, pageRequestFunction, scheduler, batchSize, 
+		lastPageTest, emptyPageTest, goodResultTest, retryOnErrorTest, maxRetries, retryMinDelayMillis, retryMaxDelayMillis
+	);
+        
+        while (true){
+            try{
+                    System.out.println("Waiting for next step...");
+                    stepper.nextStep(); //Sleep until the next step.
+                    System.out.println("Step triggered: " + dateTimeFmt.format(LocalDateTime.now()));
+            
+                    long deadlineMillis = stepper.calcCurrentStepMillis() + maxRuntimeMillis;
+                    
+                    CompletableFuture<PaginationResult<TaxiAvailabilityDocumentJson>> future = preq.requestPages(deadlineMillis);
+                    PaginationResult<TaxiAvailabilityDocumentJson> pres = future.join();
+                    int size = pres.size(); //Total number of pages returned.
+                    List<TaxiAvailabilityDocumentJson> allDocs = pres.getResponseData(); //Get all the response data in a list.
+                    for (int i = 0; i < size; i++) {
+			int pageNo = pres.getPageNumber(i); //Usually pageNo==i, but sometimes you request specific pages only.
+                        System.out.println(pres.getResponse(i).getResponseBody());
+			TaxiAvailabilityDocumentJson doc = allDocs.get(i);
+                        writeFile(pres.getResponse(i).getResponseBody(), OutputFile, i);
+			System.out.println(String.format("Page %d: %d taxis", pageNo, doc.getValue().size()));
                     }
-                    executor.shutdown();
-                    executor.awaitTermination(5, TimeUnit.SECONDS);
-                    begin = end + 500;
-                    end = begin + 2500;
-                    Thread.sleep(10000);
+                    System.out.println("Results processed.");
+                    System.out.println();
+                    System.out.println();    
+                } catch (CompletionException e){
+                    System.err.println("An error was encountered with our scraper.");
+                    e.printStackTrace();
                 }
-            } else{
-                System.out.println("NO!");
-            }
-            Thread.sleep(5000);
-        } 
-    }
+        }//END WHILE
+         
+        //ExecutorService HeartbeatExecutor = Executors.newFixedThreadPool(1);
+        //HeartbeatExecutor.submit(new HeartBeat());
+        
+            
+    } //END MAIN
 
+    private static void writeFile(String content, String OutputFile, int i) throws IOException{
+        Timestamp ts = new Timestamp(System.currentTimeMillis());
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy.MM.dd.HH.mm.SS");
+        String TimeStamp = sdf.format(ts);
+        String FileName = OutputFile + TimeStamp + ".file" + Integer.toString(i);
+        System.out.println(OutputFile);
+        try (BufferedWriter bw = new BufferedWriter(new FileWriter(FileName), 16*1024)) {
+            bw.write(content);
+        }
+    }
+    
     @Override
     public void init(DaemonContext dc) throws DaemonInitException, Exception {
         System.out.println("Initializing....");
