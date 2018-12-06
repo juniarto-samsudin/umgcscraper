@@ -17,7 +17,9 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.sql.Timestamp;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -53,7 +55,7 @@ public class Scraper implements Daemon{
     public static void main(String[] args) throws IOException, ParseException, InterruptedException, ExecutionException {
         
         JSONParser parser = new JSONParser();
-        Object obj = parser.parse(new FileReader("/etc/scraper.conf"));
+        Object obj = parser.parse(new FileReader("ta-scraper.conf"));
         JSONObject jsonObject = (JSONObject) obj;
         System.out.println(jsonObject);
         
@@ -88,12 +90,19 @@ public class Scraper implements Daemon{
                 System.out.println(DirPath);
                 Path path = Paths.get(DirPath);
                 Files.createDirectories(path);
+                List<Future<Integer>> SignalList = new ArrayList<>();
                 while(contSignal == 1){
                     ExecutorService executor = Executors.newFixedThreadPool(10);
                     for(int i = begin; i <= end; i=i+500){
                         System.out.println(i);
                         Future<Integer> future = executor.submit(new TaxiAvailabilityCallable(url, i,  DirPath, contSignal));
-                        contSignal = future.get();
+                        SignalList.add(future);
+                        //contSignal = future.get();
+                    }
+                    for(Future<Integer> signal : SignalList){
+                        if (contSignal == 1){
+                            contSignal = signal.get();
+                        }
                     }
                     executor.shutdown();
                     executor.awaitTermination(5, TimeUnit.SECONDS);
