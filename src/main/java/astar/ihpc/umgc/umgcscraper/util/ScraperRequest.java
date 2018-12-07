@@ -4,7 +4,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 
-import org.asynchttpclient.ListenableFuture;
 import org.asynchttpclient.Request;
 import org.asynchttpclient.Response;
 
@@ -23,10 +22,10 @@ class ScraperRequest<T>{
 	private final Request request; 
 	private final BiFunction<Request, Response, T> transformer; 
 	private final CompletableFuture<ScraperResult<T>> outerFuture;
-	private ListenableFuture<Response> innerFuture;
+	//private CompletableFuture<Response> innerFuture;
 	private Status status = Status.QUEUING;
 	private volatile long createTimeMillis, requestTimeMillis, responseTimeMillis, completeTimeMillis;
-	private final Object lock = this;
+	protected volatile boolean innerFutureAbort;
 	public ScraperRequest(Request request, BiFunction<Request, Response, T> transformer) {
 		super();
 		
@@ -37,31 +36,18 @@ class ScraperRequest<T>{
 		outerFuture.whenComplete(new BiConsumer<ScraperResult<T>,Throwable>(){
 			@Override
 			public void accept(ScraperResult<T> t, Throwable u) {
-				//Whenever the outerFuture is done, we change status to DONE.
-				ListenableFuture<Response> innerFuture2 = null;
-				synchronized(lock) {
-					if (status != Status.DONE) {
-						status = Status.DONE;
-					}
-					innerFuture2 = innerFuture;
-				}
-				if (innerFuture2 != null) {
-					//If there is an inner future, try to cancel that (if it isn't completed or cancelled yet).
-					innerFuture2.cancel(true);
-				}
+				innerFutureAbort = true;
 			}
 		});
 		
 		createTimeMillis = System.currentTimeMillis();
 	}
 	
-	public synchronized void advance(ListenableFuture<Response> innerFuture) {
+	public synchronized void advance(CompletableFuture<Response> innerFuture) {
 		if (status != Status.DONE) {
 			status = Status.RUNNING;
 			requestTimeMillis = System.currentTimeMillis();
-			
-			this.innerFuture = innerFuture;
-			this.innerFuture.toCompletableFuture().whenComplete(new BiConsumer<Response, Throwable>() {
+			innerFuture.whenComplete(new BiConsumer<Response, Throwable>() {
 				@Override
 				public void accept(Response response, Throwable u) {
 					if (response != null) {
@@ -82,8 +68,6 @@ class ScraperRequest<T>{
 					}
 				}
 			});
-		} else {
-			throw new IllegalStateException();
 		}
 	}
 	public Request getRequest() {
@@ -93,11 +77,8 @@ class ScraperRequest<T>{
 		return transformer;
 	}
 	
-	public CompletableFuture<ScraperResult<T>> getOuterFuture() {
+	public synchronized CompletableFuture<ScraperResult<T>> getOuterFuture() {
 		return outerFuture;
-	}
-	public ListenableFuture<Response> getInnerFuture() {
-		return innerFuture;
 	}
 	public synchronized Status getStatus() {
 		return status;
@@ -117,6 +98,7 @@ class ScraperRequest<T>{
 	
 	public void cancel() {
 		outerFuture.cancel(true);
+		innerFutureAbort = true;
 		synchronized(this) {
 			if (status == Status.DONE) {
 				//Nothing to do.
