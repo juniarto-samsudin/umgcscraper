@@ -332,7 +332,7 @@ public final class ScraperUtil {
 	 * @param objectMapper used to parse JSON into Java objects (from Jackson library)
 	 * @param httpClient the asynchronous HTTP client that will do the actual dispatching (from async-http-client library)
 	 */
-	public static ScraperClient createScraperClient(int maxConcurrentRequests, long throttleMillis, ObjectMapper objectMapper, AsyncHttpClient httpClient) {
+	public static ScraperClient createScraperClient(int maxConcurrentRequests, int throttleMillis, ObjectMapper objectMapper, AsyncHttpClient httpClient) {
 		return new ScraperClient(maxConcurrentRequests, throttleMillis, objectMapper, httpClient);
 	}
 	/**
@@ -352,7 +352,7 @@ public final class ScraperUtil {
 	 * @param objectMapper used to parse JSON into Java objects (from Jackson library)
 	 * @param httpClient the asynchronous HTTP client that will do the actual dispatching (from async-http-client library)
 	 */
-	public static ScraperClient createScraperClient(int maxConcurrentRequests, long throttleMillis) {
+	public static ScraperClient createScraperClient(int maxConcurrentRequests, int throttleMillis) {
 		return new ScraperClient(maxConcurrentRequests, throttleMillis);
 	}
 	

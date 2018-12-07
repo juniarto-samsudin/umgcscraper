@@ -24,7 +24,6 @@ import org.asynchttpclient.DefaultAsyncHttpClient;
 import org.asynchttpclient.DefaultAsyncHttpClientConfig;
 import org.asynchttpclient.HttpResponseBodyPart;
 import org.asynchttpclient.HttpResponseStatus;
-import org.asynchttpclient.ListenableFuture;
 import org.asynchttpclient.Request;
 import org.asynchttpclient.Response;
 import org.asynchttpclient.config.AsyncHttpClientConfigDefaults;
@@ -68,7 +67,7 @@ public class ScraperClient implements AutoCloseable{
 	private final Thread backgroundThread;
 	private volatile boolean shutdown;
 	private final int maxConcurrentRequests;
-	private final long throttleMillis;
+	private final int throttleMillis;
 	private final ObjectMapper objectMapper;
 	private final ArrayDeque<ScraperRequest<?>> queue = new ArrayDeque<>(256);
 	private final Object lock = this;
@@ -88,7 +87,7 @@ public class ScraperClient implements AutoCloseable{
 	 * @param objectMapper used to parse JSON into Java objects (from Jackson library)
 	 * @param httpClient the asynchronous HTTP client that will do the actual dispatching (from async-http-client library)
 	 */
-	public ScraperClient(int maxConcurrentRequests, long throttleMillis, ObjectMapper objectMapper, AsyncHttpClient httpClient) {
+	public ScraperClient(int maxConcurrentRequests, int throttleMillis, ObjectMapper objectMapper, AsyncHttpClient httpClient) {
 		this.maxConcurrentRequests = maxConcurrentRequests;
 		this.throttleMillis = throttleMillis;
 		this.objectMapper = objectMapper;
@@ -101,7 +100,8 @@ public class ScraperClient implements AutoCloseable{
 	/**
 	 * Create a ScraperClient with default dependencies.
 	 * The ObjectMapper will be a plain new ObjectMapper() and the AsyncHttpClient will be a new DefaultAsyncHttpClient().
-	 * The AsyncHttpClient will use default configuration, except connect timeout is capped at 500ms and request timeout is capped at 3000ms.
+	 * The AsyncHttpClient will use default configuration, with the following overrides:
+	 * connect timeout capped at 5000ms, request timeout capped at 10000ms, connectionTtl to 500ms, pooledConnectionIdleTimeout to 1000ms, maxRequestRetry and maxRedirects to zero.
 	 * If the defaults are lower than the caps, they will be used instead. This is because a web scraper needs to process fast, and APIs are expected to be fast.
 	 * And we don't want this class to be slow if you forgot to change the defaults.
 	 * <p>
@@ -115,13 +115,24 @@ public class ScraperClient implements AutoCloseable{
 	 * @param objectMapper used to parse JSON into Java objects (from Jackson library)
 	 * @param httpClient the asynchronous HTTP client that will do the actual dispatching (from async-http-client library)
 	 */
-	public ScraperClient(int maxConcurrentRequests, long throttleMillis) {
+	public ScraperClient(int maxConcurrentRequests, int throttleMillis) {
 		this.maxConcurrentRequests = maxConcurrentRequests;
 		this.throttleMillis = throttleMillis;
 		this.objectMapper = new ObjectMapper();
-		int connectTimeout = Math.min(AsyncHttpClientConfigDefaults.defaultConnectTimeout(), 500);
-		int requestTimeout = Math.min(AsyncHttpClientConfigDefaults.defaultRequestTimeout(), 3000);
-		DefaultAsyncHttpClientConfig config = new DefaultAsyncHttpClientConfig.Builder().setConnectTimeout(connectTimeout).setRequestTimeout(requestTimeout).build();
+		int connectTimeout = Math.min(AsyncHttpClientConfigDefaults.defaultConnectTimeout(), 5000);
+		int requestTimeout = Math.min(AsyncHttpClientConfigDefaults.defaultRequestTimeout(), 10000);
+		int maxRequestRetry = 0;
+		int maxRedirects = 0;
+		int connectionTtl = 500;
+		int pooledConnectionIdleTimeout = 1000;
+		DefaultAsyncHttpClientConfig config = new DefaultAsyncHttpClientConfig.Builder()
+			.setConnectTimeout(connectTimeout)
+			.setRequestTimeout(requestTimeout)
+			.setConnectionTtl(connectionTtl)
+			.setMaxRequestRetry(maxRequestRetry)
+			.setMaxRedirects(maxRedirects)
+			.setPooledConnectionIdleTimeout(pooledConnectionIdleTimeout)
+			.build();
 		this.httpClient = new DefaultAsyncHttpClient(config);
 		ownClient = true;
 		backgroundThread = createBackgroundThread(null);
@@ -465,7 +476,6 @@ public class ScraperClient implements AutoCloseable{
 	private final synchronized Thread createBackgroundThread(ThreadFactory factory) {
 		factory = factory == null ? DEFAULT_THREAD_FACTORY : factory;
 		final Thread t = factory.newThread(new Runnable() {
-			
 			@Override
 			public void run() {
 				final Semaphore semaphore = new Semaphore(maxConcurrentRequests);
@@ -508,6 +518,10 @@ public class ScraperClient implements AutoCloseable{
 					}
 					//Now outside the synchronized block, let's peek into our request, if it exists.
 					if (req != null) {
+						if (req.getOuterFuture().isDone()) {
+							//Bleh skip.
+							continue;
+						}
 						//Do we need to be throttled before servicing this request?
 						long now = System.nanoTime();
 						while (!shutdown && now < nextNanos) {
@@ -531,23 +545,37 @@ public class ScraperClient implements AutoCloseable{
 								//If interrupted try again.
 							}
 						}
+						//We got semaphore. What if we encountered an error?
+						
+						
 						if (shutdown) {
+							if (acquiredPermit) {
+								semaphore.release(); //Not like there's any point to release at this stage.
+								acquiredPermit = false;
+							}
 							req.cancel();
 							break;
 						}
 						//We are ready to submit, just do another check on the status of the request.
 						if (req.getOuterFuture().isDone()) {
-							continue; //Meh..
+							//Release the permit.
+							semaphore.release();
+							acquiredPermit = false; 
+							continue;
 						} else {
 							//send to client.
-							ListenableFuture<Response> innerFuture;
+							
+							CompletableFuture<Response> innerFuture;
 							synchronized(lock) {
 								if (shutdown) {
+									semaphore.release();
+									acquiredPermit = false; 
 									req.cancel();
 									break;
 								}
 								final ScraperRequest<?> req2 = req;
 								nextNanos = System.nanoTime() + throttleNanos;
+								acquiredPermit = false;
 								innerFuture = httpClient.executeRequest(req.getRequest(), new AsyncCompletionHandlerBase() {
 									public AsyncHandler.State onBodyPartReceived(HttpResponseBodyPart content) throws Exception {
 										return abortIfNeeded(super.onBodyPartReceived(content));
@@ -573,14 +601,14 @@ public class ScraperClient implements AutoCloseable{
 									public AsyncHandler.State abortIfNeeded(AsyncHandler.State superState) {
 										if (superState == AsyncHandler.State.ABORT) {
 											return superState;
-										} else if (shutdown || req2.getOuterFuture().isDone()) {
+										} else if (shutdown || req2.getOuterFuture().isDone() || req2.innerFutureAbort) {
 											return AsyncHandler.State.ABORT;
 										} else {
 											return AsyncHandler.State.CONTINUE;
 										}
 									}
-								});
-								innerFuture.toCompletableFuture().whenComplete(new BiConsumer<Response, Throwable>(){
+								}).toCompletableFuture();
+								innerFuture.whenComplete(new BiConsumer<Response, Throwable>(){
 									@Override
 									public void accept(Response t, Throwable u) {
 										semaphore.release(); // Release the permit.
@@ -588,8 +616,6 @@ public class ScraperClient implements AutoCloseable{
 								});
 							}
 							req.advance(innerFuture);
-							acquiredPermit = false;
-							
 						}
 						
 					}
