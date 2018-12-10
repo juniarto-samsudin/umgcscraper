@@ -13,6 +13,7 @@ import astar.ihpc.umgc.umgcscraper.util.ScraperResult;
 import astar.ihpc.umgc.umgcscraper.util.ScraperUtil;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
+import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 
@@ -72,7 +73,7 @@ public class Scraper implements Daemon{
     public static void main(String[] args) throws IOException, ParseException, InterruptedException, ExecutionException {
         
         JSONParser parser = new JSONParser();
-        Object obj = parser.parse(new FileReader("/etc/ta-scraper.conf"));
+        Object obj = parser.parse(new FileReader("ta-scraper.conf"));
         JSONObject jsonObject = (JSONObject) obj;
         System.out.println(jsonObject);
         
@@ -139,12 +140,29 @@ public class Scraper implements Daemon{
                     List<TaxiAvailabilityDocumentJson> allDocs = pres.getResponseData(); //Get all the response data in a list.
                     
                     String DirPath = createDirectory(OutputFile);
+                    System.out.println("DIRPATH : " + DirPath);
+                    String[] temp = DirPath.split(File.separator);
+                    String FolderName = temp[temp.length - 1];
+                    System.out.println(FolderName);
                     for (int i = 0; i < size; i++) {
 			int pageNo = pres.getPageNumber(i); //Usually pageNo==i, but sometimes you request specific pages only.
 			TaxiAvailabilityDocumentJson doc = allDocs.get(i);
                         writeFile(pres.getResponse(i).getResponseBody(), DirPath, i);
 			System.out.println(String.format("Page %d: %d taxis", pageNo, doc.getValue().size()));
                     }
+                    String OutputZipFile = OutputFile+FolderName+".zip";
+                    System.out.println("OutputZipFile : " + OutputZipFile);
+                    Zipper theZipper = new Zipper(DirPath,OutputZipFile);
+                    theZipper.zipIt();
+                    Metadata theMetadata = new Metadata(OutputZipFile);
+                    //System.out.println("ZIPTIMESTAMP: " + theMetadata.getTimeStamp());
+                    //System.out.println("ZIPMD5: " + theMetadata.getMd5Hash());
+                    //System.out.println("FILEPATH: " + theMetadata.getFilePath());
+                    //System.out.println("JSON: " + theMetadata.getJsonFile());
+                    
+                    Messenger theMessenger = new Messenger("taxi-availability",FolderName,theMetadata.getJsonFile());
+                    theMessenger.send();
+                    theZipper.delete(new File(DirPath));
                     System.out.println("Results processed.");
                     System.out.println();
                     System.out.println();    
