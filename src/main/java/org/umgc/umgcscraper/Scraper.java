@@ -28,8 +28,10 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -73,7 +75,7 @@ public class Scraper implements Daemon{
     public static void main(String[] args) throws IOException, ParseException, InterruptedException, ExecutionException {
         
         JSONParser parser = new JSONParser();
-        Object obj = parser.parse(new FileReader("ta-scraper.conf"));
+        Object obj = parser.parse(new FileReader("/etc/bs-scraper.conf"));
         JSONObject jsonObject = (JSONObject) obj;
         System.out.println(jsonObject);
         
@@ -87,7 +89,7 @@ public class Scraper implements Daemon{
         ScraperClient client = ScraperUtil.createScraperClient(8, 50);
         
         final long startTimeMillis = ScraperUtil.convertToTimeMillis(2018, 1, 1, 0, 0, 0, ZoneId.of("Asia/Singapore"));
-        final long timeStepMillis = 60_000;
+        final long timeStepMillis = 10800_000;//EVERY 3 HOURS
         final long maxOvershootMillis = 20_000;
         final long maxRandomDelayMillis = 5_000;
         
@@ -97,22 +99,22 @@ public class Scraper implements Daemon{
         final DateTimeFormatter dateTimeFmt = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
         
         final IntFunction<Request> pageCreateFunction = pageNo->{
-		String url = String.format("http://datamall2.mytransport.sg/ltaodataservice/Taxi-Availability?$skip=%d", pageNo * 500);
+		String url = String.format("http://datamall2.mytransport.sg/ltaodataservice/BusServices?$skip=%d", pageNo * 500);
 		Request req = ScraperUtil.createRequestBuilder().setUrl(url).setHeader("AccountKey", accountKey).build();
 		return req;
 	};
         
-        final Function<Request, CompletableFuture<ScraperResult<TaxiAvailabilityDocumentJson>>> pageRequestFunction = req -> {
-		return client.requestJson(req, TaxiAvailabilityDocumentJson.class);
+        final Function<Request, CompletableFuture<ScraperResult<BusServiceDocumentJson>>> pageRequestFunction = req -> {
+		return client.requestJson(req, BusServiceDocumentJson.class);
 	};
         
         final int batchSize = client.getMaxConcurrentRequests() * 2;
         
-        final Predicate<ScraperResult<TaxiAvailabilityDocumentJson>> lastPageTest = (res)->res.getResponseData().getValue().size() < 500;
+        final Predicate<ScraperResult<BusServiceDocumentJson>> lastPageTest = (res)->res.getResponseData().getValue().size() < 500;
         
-        final Predicate<ScraperResult<TaxiAvailabilityDocumentJson>> emptyPageTest = (res)->res.getResponseData().getValue().isEmpty();
+        final Predicate<ScraperResult<BusServiceDocumentJson>> emptyPageTest = (res)->res.getResponseData().getValue().isEmpty();
         
-        final Predicate<ScraperResult<TaxiAvailabilityDocumentJson>> goodResultTest = (res)->true;
+        final Predicate<ScraperResult<BusServiceDocumentJson>> goodResultTest = (res)->true;
         
         final BiPredicate<Request, Throwable> retryOnErrorTest = (req, t)->true;
         
@@ -121,23 +123,26 @@ public class Scraper implements Daemon{
         final int retryMinDelayMillis = 1000;
         final int retryMaxDelayMillis = 3000;
         
-        final PaginationRequest<TaxiAvailabilityDocumentJson> preq = new PaginationRequest<>(
+        final PaginationRequest<BusServiceDocumentJson> preq = new PaginationRequest<>(
 		pageCreateFunction, pageRequestFunction, scheduler, batchSize, 
 		lastPageTest, emptyPageTest, goodResultTest, retryOnErrorTest, maxRetries, retryMinDelayMillis, retryMaxDelayMillis
 	);
         
+        List<Map<String,String>> StateList = new ArrayList<>();
         while (true){
             try{
                     System.out.println("Waiting for next step...");
                     stepper.nextStep(); //Sleep until the next step.
                     System.out.println("Step triggered: " + dateTimeFmt.format(LocalDateTime.now()));
             
+                    Map<String, String> CurState = new HashMap<>();
+                    
                     long deadlineMillis = stepper.calcCurrentStepMillis() + maxRuntimeMillis;
                     
-                    CompletableFuture<PaginationResult<TaxiAvailabilityDocumentJson>> future = preq.requestPages(deadlineMillis);
-                    PaginationResult<TaxiAvailabilityDocumentJson> pres = future.join();
+                    CompletableFuture<PaginationResult<BusServiceDocumentJson>> future = preq.requestPages(deadlineMillis);
+                    PaginationResult<BusServiceDocumentJson> pres = future.join();
                     int size = pres.size(); //Total number of pages returned.
-                    List<TaxiAvailabilityDocumentJson> allDocs = pres.getResponseData(); //Get all the response data in a list.
+                    List<BusServiceDocumentJson> allDocs = pres.getResponseData(); //Get all the response data in a list.
                     
                     String DirPath = createDirectory(OutputFile);
                     System.out.println("DIRPATH : " + DirPath);
@@ -146,23 +151,39 @@ public class Scraper implements Daemon{
                     System.out.println(FolderName);
                     for (int i = 0; i < size; i++) {
 			int pageNo = pres.getPageNumber(i); //Usually pageNo==i, but sometimes you request specific pages only.
-			TaxiAvailabilityDocumentJson doc = allDocs.get(i);
-                        writeFile(pres.getResponse(i).getResponseBody(), DirPath, i);
-			System.out.println(String.format("Page %d: %d taxis", pageNo, doc.getValue().size()));
+			//TaxiAvailabilityDocumentJson doc = allDocs.get(i);
+                        writeFile(pres.getResponse(i).getResponseBody(), DirPath, i, CurState);
+			//System.out.println(String.format("Page %d: %d taxis", pageNo, doc.getValue().size()));
                     }
+                    StateList.add(CurState);
+                    
                     String OutputZipFile = OutputFile+FolderName+".zip";
                     System.out.println("OutputZipFile : " + OutputZipFile);
-                    Zipper theZipper = new Zipper(DirPath,OutputZipFile);
-                    theZipper.zipIt();
-                    Metadata theMetadata = new Metadata(OutputZipFile);
-                    //System.out.println("ZIPTIMESTAMP: " + theMetadata.getTimeStamp());
-                    //System.out.println("ZIPMD5: " + theMetadata.getMd5Hash());
-                    //System.out.println("FILEPATH: " + theMetadata.getFilePath());
-                    //System.out.println("JSON: " + theMetadata.getJsonFile());
+                    if (StateList.size() == 1){  // At the beginning
+                        //ALWAYS WRITE
+                        ZipAndDelete(DirPath, OutputZipFile, FolderName);
+                    }else{
+                        Map<String,String> map0 = StateList.get(0);
+                        Map<String,String> map1 = StateList.get(1);
+                        System.out.println("Map 0 size: " + map0.size());
+                        System.out.println("Map 1 size: " + map1.size());
+                        if (map0.size() != map1.size()){
+                            System.out.println("Map Size different!!!!Write as Usual!");
+                            //WRITE AS USUAL
+                            ZipAndDelete(DirPath, OutputZipFile, FolderName);
+                            StateList.remove(0);
+                        }else{//IF THE SIZE OF THE MAP IS THE SAME: 
+                            if (map0.equals(map1)){
+                                System.out.println("Both Map are Equal, No Need To Write!!!");
+                                //NO NEED TO WRITE BUT STILL NEED TO DELETE
+                                Zipper theZipper = new Zipper(DirPath, OutputZipFile);
+                                theZipper.delete(new File(DirPath));
+                                StateList.remove(0);
+                            }
+                        }
+                        
+                    }
                     
-                    Messenger theMessenger = new Messenger("taxi-availability",FolderName,theMetadata.getJsonFile());
-                    theMessenger.send();
-                    theZipper.delete(new File(DirPath));
                     System.out.println("Results processed.");
                     System.out.println();
                     System.out.println();    
@@ -177,8 +198,23 @@ public class Scraper implements Daemon{
         
             
     } //END MAIN
+    
+    
+    private static void ZipAndDelete(String DirPath, String OutputZipFile, String FolderName) throws IOException{
+        Zipper theZipper = new Zipper(DirPath,OutputZipFile);
+        theZipper.zipIt();
+        Metadata theMetadata = new Metadata(OutputZipFile);
+        //System.out.println("ZIPTIMESTAMP: " + theMetadata.getTimeStamp());
+        //System.out.println("ZIPMD5: " + theMetadata.getMd5Hash());
+        //System.out.println("FILEPATH: " + theMetadata.getFilePath());
+        //System.out.println("JSON: " + theMetadata.getJsonFile());
+                    
+        Messenger theMessenger = new Messenger("bus-service",FolderName,theMetadata.getJsonFile());
+        theMessenger.send();
+        theZipper.delete(new File(DirPath));
+    }
 
-    private static void writeFile(String content, String OutputFile, int i) throws IOException{
+    private static void writeFile(String content, String OutputFile, int i, Map<String,String> CurState) throws IOException{
         Timestamp ts = new Timestamp(System.currentTimeMillis());
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy.MM.dd.HH.mm.SS");
         String TimeStamp = sdf.format(ts);
@@ -187,6 +223,9 @@ public class Scraper implements Daemon{
         try (BufferedWriter bw = new BufferedWriter(new FileWriter(FileName), 16*1024)) {
             bw.write(content);
         }
+        Metadata filemetadata = new Metadata(FileName);
+        String key = "file" + Integer.toString(i);
+        CurState.put(key, filemetadata.getMd5Hash() );
     }
     
     private static String createDirectory(String OutputFile) throws IOException{
