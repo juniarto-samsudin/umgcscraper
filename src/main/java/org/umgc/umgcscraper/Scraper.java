@@ -13,6 +13,7 @@ import astar.ihpc.umgc.umgcscraper.util.ScraperResult;
 import astar.ihpc.umgc.umgcscraper.util.ScraperUtil;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
+import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 
@@ -164,6 +165,8 @@ public class Scraper implements Daemon{
                     Set<Long> linkSet = new LinkedHashSet<>(); //Track all the observed link ids.
                     
                     String DirPath = createDirectory(OutputFile);
+                    String[] temp = DirPath.split(File.separator);
+                    String FolderName = temp[temp.length - 1];
                     for (int i = 0; i < size; i++) {
 			int pageNo = pres.getPageNumber(i); //Usually pageNo==i, but sometimes you request specific pages only.
 			SpeedBandDocumentJson doc = allDocs.get(i);
@@ -182,6 +185,13 @@ public class Scraper implements Daemon{
                             writeFile(pres.getResponse(i).getResponseBody(), DirPath, i);
                         }
                     }
+                    String OutputZipFile = OutputFile+FolderName+".zip";
+                    Zipper theZipper = new Zipper(DirPath, OutputZipFile);
+                    theZipper.zipIt();
+                    Metadata theMetadata = new Metadata(OutputZipFile);
+                    Messenger theMessenger = new Messenger("speed-band",FolderName,theMetadata.getJsonFile());
+                    theMessenger.send();
+                    theZipper.delete(new File(DirPath));
                     //If you reach here, allResults & allDocs are correctly fetched, and you can do your own work on them (e.g., publish to Kafka).
                     System.out.println("Results processed.");
                     System.out.println();
