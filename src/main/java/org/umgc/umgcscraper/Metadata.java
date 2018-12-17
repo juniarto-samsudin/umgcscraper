@@ -50,6 +50,13 @@ public class Metadata {
         return TimeStamp;
     }
     
+    public String getCurDate(){
+        String ts = getTimeStamp();
+        String[] temp = ts.split("\\.");
+        System.out.println( temp[2]);
+        return temp[2];
+    }
+    
     //Hash
     public String getMd5Hash() throws FileNotFoundException, IOException{
         FileInputStream theinputstream = new FileInputStream(OutputZipFile);

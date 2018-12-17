@@ -11,14 +11,20 @@ import astar.ihpc.umgc.umgcscraper.util.RealTimeStepper;
 import astar.ihpc.umgc.umgcscraper.util.ScraperClient;
 import astar.ihpc.umgc.umgcscraper.util.ScraperResult;
 import astar.ihpc.umgc.umgcscraper.util.ScraperUtil;
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.FileWriter;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -52,6 +58,11 @@ import org.json.simple.parser.ParseException;
 import org.apache.commons.daemon.Daemon;
 import org.apache.commons.daemon.DaemonContext;
 import org.apache.commons.daemon.DaemonInitException;
+import org.apache.commons.io.IOUtils;
+import org.apache.http.HttpResponse;
+import org.apache.http.client.HttpClient;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerRecord;
@@ -73,7 +84,7 @@ public class Scraper implements Daemon{
     public static void main(String[] args) throws IOException, ParseException, InterruptedException, ExecutionException {
         
         JSONParser parser = new JSONParser();
-        Object obj = parser.parse(new FileReader("/etc/ta-scraper.conf"));
+        Object obj = parser.parse(new FileReader("pvbbs-scraper.conf"));
         JSONObject jsonObject = (JSONObject) obj;
         System.out.println(jsonObject);
         
@@ -83,7 +94,7 @@ public class Scraper implements Daemon{
         
         String accountKey = (String)jsonObject.get("accountkey");
         
-        final ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(1);
+        
         ScraperClient client = ScraperUtil.createScraperClient(8, 50);
         
         final long startTimeMillis = ScraperUtil.convertToTimeMillis(2018, 1, 1, 0, 0, 0, ZoneId.of("Asia/Singapore"));
@@ -96,35 +107,6 @@ public class Scraper implements Daemon{
         final RealTimeStepper stepper = ScraperUtil.createRealTimeStepper(startTimeMillis, timeStepMillis, maxOvershootMillis, maxRandomDelayMillis);
         final DateTimeFormatter dateTimeFmt = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
         
-        final IntFunction<Request> pageCreateFunction = pageNo->{
-		String url = String.format("http://datamall2.mytransport.sg/ltaodataservice/Taxi-Availability?$skip=%d", pageNo * 500);
-		Request req = ScraperUtil.createRequestBuilder().setUrl(url).setHeader("AccountKey", accountKey).build();
-		return req;
-	};
-        
-        final Function<Request, CompletableFuture<ScraperResult<TaxiAvailabilityDocumentJson>>> pageRequestFunction = req -> {
-		return client.requestJson(req, TaxiAvailabilityDocumentJson.class);
-	};
-        
-        final int batchSize = client.getMaxConcurrentRequests() * 2;
-        
-        final Predicate<ScraperResult<TaxiAvailabilityDocumentJson>> lastPageTest = (res)->res.getResponseData().getValue().size() < 500;
-        
-        final Predicate<ScraperResult<TaxiAvailabilityDocumentJson>> emptyPageTest = (res)->res.getResponseData().getValue().isEmpty();
-        
-        final Predicate<ScraperResult<TaxiAvailabilityDocumentJson>> goodResultTest = (res)->true;
-        
-        final BiPredicate<Request, Throwable> retryOnErrorTest = (req, t)->true;
-        
-        final int maxRetries = 3;
-        
-        final int retryMinDelayMillis = 1000;
-        final int retryMaxDelayMillis = 3000;
-        
-        final PaginationRequest<TaxiAvailabilityDocumentJson> preq = new PaginationRequest<>(
-		pageCreateFunction, pageRequestFunction, scheduler, batchSize, 
-		lastPageTest, emptyPageTest, goodResultTest, retryOnErrorTest, maxRetries, retryMinDelayMillis, retryMaxDelayMillis
-	);
         
         while (true){
             try{
@@ -132,10 +114,62 @@ public class Scraper implements Daemon{
                     stepper.nextStep(); //Sleep until the next step.
                     System.out.println("Step triggered: " + dateTimeFmt.format(LocalDateTime.now()));
             
+                    String url = "http://datamall2.mytransport.sg/ltaodataservice/PV/Bus";
+                    Request req = ScraperUtil.createRequestBuilder().setUrl(url).setHeader("AccountKey", accountKey).build();
+                    CompletableFuture<ScraperResult<PasVolBusStopDocumentJson>> future = client.requestJson(req, PasVolBusStopDocumentJson.class);
+                    ScraperResult<PasVolBusStopDocumentJson> result = future.join();
+                    PasVolBusStopDocumentJson content = result.getResponseData();
+                    System.out.println("RESULT IS: " + content.getValue().get(0).getLink());
+                    
+                    
+                    String ZipFile = createZipFile(OutputFile);
+                    
+                    String AwsUrl = content.getValue().get(0).getLink();
+                    HttpClient AwsClient = HttpClientBuilder.create().build();
+                    HttpGet AwsRequest = new HttpGet(AwsUrl);
+                    int bufferSize = 16 *1024;
+                    HttpResponse response = AwsClient.execute(AwsRequest);
+                    System.out.println("Response Code: " + response.getStatusLine().getStatusCode());
+                    
+                    InputStream data = new BufferedInputStream(response.getEntity().getContent());
+                    OutputStream out = new BufferedOutputStream(new FileOutputStream(new File(ZipFile)));
+                    
+                    IOUtils.copy(data, out);
+                    out.flush();
+                    out.close();
+                    
+                    Metadata theMetadata = new Metadata(ZipFile);
+                    Messenger theMessenger = new Messenger("passenger-volume-by-bus-stop",OutputFile,theMetadata.getJsonFile());
+                    theMessenger.send();
+                    System.out.println(theMetadata.getCurDate());
+                    /*
+                    InputStream data = response.getEntity().getContent();
+                    ByteArrayOutputStream baos = new ByteArrayOutputStream(1024 *1024);
+                    try{
+                    IOUtils.copy(data, baos);
+                    }finally{
+                        data.close();
+                    }
+                    System.out.println("WRITE COMPLETED!");
+                    */
+                    
+                    /*
+                    InputStream data = response.getEntity().getContent();
+                    OutputStream output = new FileOutputStream("response.zip");
+                    byte[] buffer = new byte[1024*6];
+                    while(data.read(buffer) != -1){
+                        output.write(buffer);
+                    }
+                    output.flush();
+                    output.close();
+                    */
+                    System.out.println("Write Completed!!!");
+                    
+                    
+                    /*
                     long deadlineMillis = stepper.calcCurrentStepMillis() + maxRuntimeMillis;
                     
-                    CompletableFuture<PaginationResult<TaxiAvailabilityDocumentJson>> future = preq.requestPages(deadlineMillis);
-                    PaginationResult<TaxiAvailabilityDocumentJson> pres = future.join();
+                    
                     int size = pres.size(); //Total number of pages returned.
                     List<TaxiAvailabilityDocumentJson> allDocs = pres.getResponseData(); //Get all the response data in a list.
                     
@@ -165,7 +199,8 @@ public class Scraper implements Daemon{
                     theZipper.delete(new File(DirPath));
                     System.out.println("Results processed.");
                     System.out.println();
-                    System.out.println();    
+                    System.out.println();
+                    */
                 } catch (CompletionException e){
                     System.err.println("An error was encountered with our scraper.");
                     e.printStackTrace();
@@ -189,6 +224,13 @@ public class Scraper implements Daemon{
         }
     }
     
+    private static String createZipFile(String OutputFile) throws IOException{
+        Timestamp ts = new Timestamp(System.currentTimeMillis());
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy.MM.dd.HH.mm.ss");
+        String sts = sdf.format(ts);
+        String ZipFile = OutputFile + sts + ".zip";
+        return ZipFile;
+    }
     private static String createDirectory(String OutputFile) throws IOException{
         Timestamp ts = new Timestamp(System.currentTimeMillis());
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy.MM.dd.HH.mm.ss");
