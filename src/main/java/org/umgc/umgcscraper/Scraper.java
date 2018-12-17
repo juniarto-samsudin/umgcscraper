@@ -34,8 +34,10 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -84,7 +86,7 @@ public class Scraper implements Daemon{
     public static void main(String[] args) throws IOException, ParseException, InterruptedException, ExecutionException {
         
         JSONParser parser = new JSONParser();
-        Object obj = parser.parse(new FileReader("pvbbs-scraper.conf"));
+        Object obj = parser.parse(new FileReader("/etc/pvbbs-scraper.conf"));
         JSONObject jsonObject = (JSONObject) obj;
         System.out.println(jsonObject);
         
@@ -92,13 +94,14 @@ public class Scraper implements Daemon{
         System.out.println(OutputFile);
         long loop = (Long)jsonObject.get("loop");
         
-        String accountKey = (String)jsonObject.get("accountkey");
+        String accountKey = (String)jsonObject.get("accountkey1");
         
         
         ScraperClient client = ScraperUtil.createScraperClient(8, 50);
         
         final long startTimeMillis = ScraperUtil.convertToTimeMillis(2018, 1, 1, 0, 0, 0, ZoneId.of("Asia/Singapore"));
-        final long timeStepMillis = 60_000;
+        //final long timeStepMillis = 60_000;
+        final long timeStepMillis = 86400000;
         final long maxOvershootMillis = 20_000;
         final long maxRandomDelayMillis = 5_000;
         
@@ -107,13 +110,15 @@ public class Scraper implements Daemon{
         final RealTimeStepper stepper = ScraperUtil.createRealTimeStepper(startTimeMillis, timeStepMillis, maxOvershootMillis, maxRandomDelayMillis);
         final DateTimeFormatter dateTimeFmt = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
         
-        
+        List<Map<String,String>> StateList = new ArrayList<>();
         while (true){
             try{
                     System.out.println("Waiting for next step...");
                     stepper.nextStep(); //Sleep until the next step.
                     System.out.println("Step triggered: " + dateTimeFmt.format(LocalDateTime.now()));
             
+                    Map<String, String> CurState = new HashMap<>();
+                    
                     String url = "http://datamall2.mytransport.sg/ltaodataservice/PV/Bus";
                     Request req = ScraperUtil.createRequestBuilder().setUrl(url).setHeader("AccountKey", accountKey).build();
                     CompletableFuture<ScraperResult<PasVolBusStopDocumentJson>> future = client.requestJson(req, PasVolBusStopDocumentJson.class);
@@ -139,9 +144,64 @@ public class Scraper implements Daemon{
                     out.close();
                     
                     Metadata theMetadata = new Metadata(ZipFile);
-                    Messenger theMessenger = new Messenger("passenger-volume-by-bus-stop",OutputFile,theMetadata.getJsonFile());
-                    theMessenger.send();
-                    System.out.println(theMetadata.getCurDate());
+                    CurState.put("file", theMetadata.getMd5Hash());
+                    CurState.put("date", theMetadata.getCurDate());
+                    CurState.put("month", theMetadata.getCurMonth());
+                    
+                    StateList.add(CurState);
+                    //AT THE BEGINNING
+                    //ALWAYS SEND
+                    if (StateList.size() == 1){
+                        System.out.println("FIRST ENTRY! JUST GO AHEAD");
+                        Messenger theMessenger = new Messenger("passenger-volume-by-bus-stop",OutputFile,theMetadata.getJsonFile());
+                        theMessenger.send();
+                        System.out.println(theMetadata.getCurDate());
+                    } else if (StateList.size() > 1){
+                        System.out.println("OTHER THAN FIRST ENTRY!");
+                        //CHECK MD5CHECKSUM  
+                        Map<String, String> map0 = StateList.get(0);
+                        Map<String, String> map1 = StateList.get(1);
+                        int date0 = Integer.parseInt(map0.get("date"));
+                        int date1 = Integer.parseInt(map1.get("date"));
+                        if (map0.get("file").equals(map1.get("file"))){//IF THE MD5SUM IS THE SAME
+                            System.out.println("MD5SUM IS THE SAME!");
+                            if (map0.get("month").equals(map1.get("month"))){
+                                System.out.println("Same Month!");
+                                if (date1 > 15 && date0 <=15){
+                                    System.out.println("date1 > 15 and date0 <=15");
+                                    Messenger theMessenger = new Messenger("passenger-volume-by-bus-stop",OutputFile,theMetadata.getJsonFile());
+                                    theMessenger.send();
+                                    StateList.remove(0);
+                                }else{
+                                    System.out.println("delete zip file");
+                                    Zipper theZipper = new Zipper(OutputFile,ZipFile);
+                                    theZipper.delete(new File(ZipFile)); //DELETE THE ZIPFILE
+                                    StateList.remove(1);
+                                }
+                            }else{
+                                System.out.println("Different Month!");
+                                if (date1 > 15 && date0 > 15){
+                                    System.out.println("date1 > 15 and date0 >15");
+                                    Messenger theMessenger = new Messenger("passenger-volume-by-bus-stop",OutputFile,theMetadata.getJsonFile());
+                                    theMessenger.send();
+                                    StateList.remove(0);
+                                }else{
+                                    System.out.println("delete zip file");
+                                    Zipper theZipper = new Zipper(OutputFile,ZipFile);
+                                    theZipper.delete(new File(ZipFile)); //DELETE THE ZIPFILE
+                                    StateList.remove(1);
+                                }
+                            }
+                            
+                            
+                        }else{//MD5SUM IS DIFFERENT, SURE SEND
+                            Messenger theMessenger = new Messenger("passenger-volume-by-bus-stop",OutputFile,theMetadata.getJsonFile());
+                            theMessenger.send();
+                            System.out.println(theMetadata.getCurDate());
+                            StateList.remove(0);
+                        }
+                    }
+                    
                     /*
                     InputStream data = response.getEntity().getContent();
                     ByteArrayOutputStream baos = new ByteArrayOutputStream(1024 *1024);

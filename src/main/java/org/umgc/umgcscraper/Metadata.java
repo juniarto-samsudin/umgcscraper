@@ -57,6 +57,13 @@ public class Metadata {
         return temp[2];
     }
     
+    public String getCurMonth(){
+        String ts = getTimeStamp();
+        String[] temp = ts.split("\\.");
+        System.out.println("Month: " + temp[1]);
+        return temp[1];
+    }
+    
     //Hash
     public String getMd5Hash() throws FileNotFoundException, IOException{
         FileInputStream theinputstream = new FileInputStream(OutputZipFile);
