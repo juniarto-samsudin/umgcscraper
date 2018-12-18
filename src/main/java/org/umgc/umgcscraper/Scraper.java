@@ -94,7 +94,7 @@ public class Scraper implements Daemon{
         System.out.println(OutputFile);
         long loop = (Long)jsonObject.get("loop");
         
-        String accountKey = (String)jsonObject.get("accountkey1");
+        String accountKey = (String)jsonObject.get("accountkey");
         
         
         ScraperClient client = ScraperUtil.createScraperClient(8, 50);
