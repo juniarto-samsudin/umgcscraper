@@ -28,8 +28,10 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -73,7 +75,7 @@ public class Scraper implements Daemon{
     public static void main(String[] args) throws IOException, ParseException, InterruptedException, ExecutionException {
         
         JSONParser parser = new JSONParser();
-        Object obj = parser.parse(new FileReader("road-opening-scraper.conf"));
+        Object obj = parser.parse(new FileReader("/etc/road-opening-scraper.conf"));
         JSONObject jsonObject = (JSONObject) obj;
         System.out.println(jsonObject);
         
@@ -87,7 +89,8 @@ public class Scraper implements Daemon{
         ScraperClient client = ScraperUtil.createScraperClient(8, 50);
         
         final long startTimeMillis = ScraperUtil.convertToTimeMillis(2018, 1, 1, 0, 0, 0, ZoneId.of("Asia/Singapore"));
-        final long timeStepMillis = 60_000;
+        //final long timeStepMillis = 60_000;
+        final long timeStepMillis = 10_800_000;//Three Hours
         final long maxOvershootMillis = 20_000;
         final long maxRandomDelayMillis = 5_000;
         
@@ -126,12 +129,16 @@ public class Scraper implements Daemon{
 		lastPageTest, emptyPageTest, goodResultTest, retryOnErrorTest, maxRetries, retryMinDelayMillis, retryMaxDelayMillis
 	);
         
+        List<Map<String,String>> StateList = new ArrayList<>();
+        Map<String, String> ChangeStatus = new HashMap<>();
         while (true){
             try{
                     System.out.println("Waiting for next step...");
                     stepper.nextStep(); //Sleep until the next step.
                     System.out.println("Step triggered: " + dateTimeFmt.format(LocalDateTime.now()));
             
+                    Map<String, String> CurState = new HashMap<>();
+                    
                     long deadlineMillis = stepper.calcCurrentStepMillis() + maxRuntimeMillis;
                     
                     CompletableFuture<PaginationResult<RoadOpeningDocumentJson>> future = preq.requestPages(deadlineMillis);
@@ -147,9 +154,29 @@ public class Scraper implements Daemon{
                     for (int i = 0; i < size; i++) {
 			int pageNo = pres.getPageNumber(i); //Usually pageNo==i, but sometimes you request specific pages only.
 			RoadOpeningDocumentJson doc = allDocs.get(i);
-                        writeFile(pres.getResponse(i).getResponseBody(), DirPath, i);
-			System.out.println(String.format("Page %d: %d taxis", pageNo, doc.getValue().size()));
+                        writeFile(pres.getResponse(i).getResponseBody(), DirPath, i, CurState);
+			System.out.println(String.format("Page %d: %d road opening", pageNo, doc.getValue().size()));
                     }
+                    StateList.add(CurState);
+                    
+                    if (StateList.size() == 2){
+                        Map<String,String> map0 = StateList.get(0);
+                        Map<String,String> map1 = StateList.get(1);
+                        if (map0.equals(map1)){
+                            StateList.remove(1);
+                            ChangeStatus.put(FolderName, "SAME");
+                        }else{
+                            ChangeStatus.put(FolderName, "DIFFERENT");
+                            StateList.remove(0);
+                        }
+                    }
+                    
+                    for (Map.Entry<String, String> entry : ChangeStatus.entrySet()){
+                        System.out.println("Folder: " + entry.getKey() + " Value: " + entry.getValue());
+                    }
+                    
+                    
+                    
                     String OutputZipFile = OutputFile+FolderName+".zip";
                     System.out.println("OutputZipFile : " + OutputZipFile);
                     Zipper theZipper = new Zipper(DirPath,OutputZipFile);
@@ -160,7 +187,7 @@ public class Scraper implements Daemon{
                     //System.out.println("FILEPATH: " + theMetadata.getFilePath());
                     //System.out.println("JSON: " + theMetadata.getJsonFile());
                     
-                    Messenger theMessenger = new Messenger("taxi-availability",FolderName,theMetadata.getJsonFile());
+                    Messenger theMessenger = new Messenger("road-opening",FolderName,theMetadata.getJsonFile());
                     theMessenger.send();
                     theZipper.delete(new File(DirPath));
                     System.out.println("Results processed.");
@@ -178,7 +205,7 @@ public class Scraper implements Daemon{
             
     } //END MAIN
 
-    private static void writeFile(String content, String OutputFile, int i) throws IOException{
+    private static void writeFile(String content, String OutputFile, int i, Map<String, String> CurState) throws IOException{
         Timestamp ts = new Timestamp(System.currentTimeMillis());
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy.MM.dd.HH.mm.SS");
         String TimeStamp = sdf.format(ts);
@@ -187,7 +214,10 @@ public class Scraper implements Daemon{
         try (BufferedWriter bw = new BufferedWriter(new FileWriter(FileName), 16*1024)) {
             bw.write(content);
         }
-    }
+        Metadata filemetadata = new Metadata(FileName);
+        String key = "file" + Integer.toString(i);
+        CurState.put(key, filemetadata.getMd5Hash());
+}
     
     private static String createDirectory(String OutputFile) throws IOException{
         Timestamp ts = new Timestamp(System.currentTimeMillis());
