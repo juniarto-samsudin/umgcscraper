@@ -75,7 +75,7 @@ public class Scraper implements Daemon{
     public static void main(String[] args) throws IOException, ParseException, InterruptedException, ExecutionException {
         
         JSONParser parser = new JSONParser();
-        Object obj = parser.parse(new FileReader("/etc/road-opening-scraper.conf"));
+        Object obj = parser.parse(new FileReader("/etc/road-work-scraper.conf"));
         JSONObject jsonObject = (JSONObject) obj;
         System.out.println(jsonObject);
         
@@ -100,22 +100,22 @@ public class Scraper implements Daemon{
         final DateTimeFormatter dateTimeFmt = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
         
         final IntFunction<Request> pageCreateFunction = pageNo->{
-		String url = String.format("http://datamall2.mytransport.sg/ltaodataservice/RoadOpenings?$skip=%d", pageNo * 500);
+		String url = String.format("http://datamall2.mytransport.sg/ltaodataservice/RoadWorks?$skip=%d", pageNo * 500);
 		Request req = ScraperUtil.createRequestBuilder().setUrl(url).setHeader("AccountKey", accountKey).build();
 		return req;
 	};
         
-        final Function<Request, CompletableFuture<ScraperResult<RoadOpeningDocumentJson>>> pageRequestFunction = req -> {
-		return client.requestJson(req, RoadOpeningDocumentJson.class);
+        final Function<Request, CompletableFuture<ScraperResult<RoadWorkDocumentJson>>> pageRequestFunction = req -> {
+		return client.requestJson(req, RoadWorkDocumentJson.class);
 	};
         
         final int batchSize = client.getMaxConcurrentRequests() * 2;
         
-        final Predicate<ScraperResult<RoadOpeningDocumentJson>> lastPageTest = (res)->res.getResponseData().getValue().size() < 500;
+        final Predicate<ScraperResult<RoadWorkDocumentJson>> lastPageTest = (res)->res.getResponseData().getValue().size() < 500;
         
-        final Predicate<ScraperResult<RoadOpeningDocumentJson>> emptyPageTest = (res)->res.getResponseData().getValue().isEmpty();
+        final Predicate<ScraperResult<RoadWorkDocumentJson>> emptyPageTest = (res)->res.getResponseData().getValue().isEmpty();
         
-        final Predicate<ScraperResult<RoadOpeningDocumentJson>> goodResultTest = (res)->true;
+        final Predicate<ScraperResult<RoadWorkDocumentJson>> goodResultTest = (res)->true;
         
         final BiPredicate<Request, Throwable> retryOnErrorTest = (req, t)->true;
         
@@ -124,7 +124,7 @@ public class Scraper implements Daemon{
         final int retryMinDelayMillis = 1000;
         final int retryMaxDelayMillis = 3000;
         
-        final PaginationRequest<RoadOpeningDocumentJson> preq = new PaginationRequest<>(
+        final PaginationRequest<RoadWorkDocumentJson> preq = new PaginationRequest<>(
 		pageCreateFunction, pageRequestFunction, scheduler, batchSize, 
 		lastPageTest, emptyPageTest, goodResultTest, retryOnErrorTest, maxRetries, retryMinDelayMillis, retryMaxDelayMillis
 	);
@@ -141,10 +141,10 @@ public class Scraper implements Daemon{
                     
                     long deadlineMillis = stepper.calcCurrentStepMillis() + maxRuntimeMillis;
                     
-                    CompletableFuture<PaginationResult<RoadOpeningDocumentJson>> future = preq.requestPages(deadlineMillis);
-                    PaginationResult<RoadOpeningDocumentJson> pres = future.join();
+                    CompletableFuture<PaginationResult<RoadWorkDocumentJson>> future = preq.requestPages(deadlineMillis);
+                    PaginationResult<RoadWorkDocumentJson> pres = future.join();
                     int size = pres.size(); //Total number of pages returned.
-                    List<RoadOpeningDocumentJson> allDocs = pres.getResponseData(); //Get all the response data in a list.
+                    List<RoadWorkDocumentJson> allDocs = pres.getResponseData(); //Get all the response data in a list.
                     
                     String DirPath = createDirectory(OutputFile);
                     System.out.println("DIRPATH : " + DirPath);
@@ -153,9 +153,9 @@ public class Scraper implements Daemon{
                     System.out.println(FolderName);
                     for (int i = 0; i < size; i++) {
 			int pageNo = pres.getPageNumber(i); //Usually pageNo==i, but sometimes you request specific pages only.
-			RoadOpeningDocumentJson doc = allDocs.get(i);
+			RoadWorkDocumentJson doc = allDocs.get(i);
                         writeFile(pres.getResponse(i).getResponseBody(), DirPath, i, CurState);
-			System.out.println(String.format("Page %d: %d road opening", pageNo, doc.getValue().size()));
+			System.out.println(String.format("Page %d: %d road work", pageNo, doc.getValue().size()));
                     }
                     StateList.add(CurState);
                     
@@ -187,7 +187,7 @@ public class Scraper implements Daemon{
                     //System.out.println("FILEPATH: " + theMetadata.getFilePath());
                     //System.out.println("JSON: " + theMetadata.getJsonFile());
                     
-                    Messenger theMessenger = new Messenger("road-opening",FolderName,theMetadata.getJsonFile());
+                    Messenger theMessenger = new Messenger("road-work",FolderName,theMetadata.getJsonFile());
                     theMessenger.send();
                     theZipper.delete(new File(DirPath));
                     System.out.println("Results processed.");
