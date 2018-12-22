@@ -1,4 +1,4 @@
-package astar.ihpc.umgc.umgcscraper.util;
+package astar.ihpc.umgc.scraper.util;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -16,13 +16,15 @@ public class PaginationResult<T> {
 	private final List<T> responseData = new ArrayList<>();
 	private final List<Integer> retryCounts;
 	private final int retryCountTotal;
+	private final int requestCount;
 	private final long createTimeMillis;
 	private final long completeTimeMillis;
 	public PaginationResult(List<Integer> pageNumbers, List<ScraperResult<T>> scraperResults,
-			List<Integer> retryCounts, int retryCountTotal, long createTimeMillis, long completeTimeMillis) {
+			List<Integer> retryCounts, int requestCount, int retryCountTotal, long createTimeMillis, long completeTimeMillis) {
 		super();
 		this.pageNumbers = pageNumbers;
 		this.scraperResults = scraperResults;
+		this.requestCount = requestCount;
 		this.retryCounts = retryCounts;
 		this.retryCountTotal = retryCountTotal;
 		this.createTimeMillis = createTimeMillis;
@@ -79,6 +81,10 @@ public class PaginationResult<T> {
 	
 	public List<ScraperResult<T>> getScraperResults(){
 		return scraperResults;
+	}
+	
+	public int getRequestCount() {
+		return requestCount;
 	}
 	
 	public int getRetryCount(int index) {
