@@ -75,7 +75,7 @@ public class Scraper implements Daemon{
     public static void main(String[] args) throws IOException, ParseException, InterruptedException, ExecutionException {
         
         JSONParser parser = new JSONParser();
-        Object obj = parser.parse(new FileReader("/etc/bs-scraper.conf"));
+        Object obj = parser.parse(new FileReader("bs-scraper.conf"));
         JSONObject jsonObject = (JSONObject) obj;
         System.out.println(jsonObject);
         
@@ -89,7 +89,8 @@ public class Scraper implements Daemon{
         ScraperClient client = ScraperUtil.createScraperClient(8, 50);
         
         final long startTimeMillis = ScraperUtil.convertToTimeMillis(2018, 1, 1, 0, 0, 0, ZoneId.of("Asia/Singapore"));
-        final long timeStepMillis = 10800_000;//EVERY 3 HOURS
+        //final long timeStepMillis = 10800_000;//EVERY 3 HOURS
+        final long timeStepMillis = 60_000;
         final long maxOvershootMillis = 20_000;
         final long maxRandomDelayMillis = 5_000;
         
@@ -160,7 +161,8 @@ public class Scraper implements Daemon{
                     String OutputZipFile = OutputFile+FolderName+".zip";
                     System.out.println("OutputZipFile : " + OutputZipFile);
                     if (StateList.size() == 1){  // At the beginning
-                        //ALWAYS WRITE
+                        //ALWAYS ZIP, DELETE AND SEND
+                        System.out.println("AT THE BEGINNING, ALWAYS WRITE");
                         ZipAndDelete(DirPath, OutputZipFile, FolderName);
                     }else{
                         Map<String,String> map0 = StateList.get(0);
@@ -171,14 +173,18 @@ public class Scraper implements Daemon{
                             System.out.println("Map Size different!!!!Write as Usual!");
                             //WRITE AS USUAL
                             ZipAndDelete(DirPath, OutputZipFile, FolderName);
-                            StateList.remove(0);
+                            StateList.remove(0);//REMOVE THE OLD ONE
                         }else{//IF THE SIZE OF THE MAP IS THE SAME: 
                             if (map0.equals(map1)){
                                 System.out.println("Both Map are Equal, No Need To Write!!!");
                                 //NO NEED TO WRITE BUT STILL NEED TO DELETE
                                 Zipper theZipper = new Zipper(DirPath, OutputZipFile);
                                 theZipper.delete(new File(DirPath));
-                                StateList.remove(0);
+                                StateList.remove(1);//REMOVE THE NEW ONE, NEW ONE INVALID AND REPLACED.
+                            }else{
+                                System.out.println("Both Maps are not equal!");
+                                ZipAndDelete(DirPath, OutputZipFile, FolderName);
+                                StateList.remove(0);//REMOVE THE OLD ONE, OLD ONE INVALID AND REPLACED.
                             }
                         }
                         
