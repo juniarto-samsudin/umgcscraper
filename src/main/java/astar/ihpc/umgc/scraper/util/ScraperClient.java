@@ -1,4 +1,4 @@
-package astar.ihpc.umgc.umgcscraper.util;
+package astar.ihpc.umgc.scraper.util;
 
 import java.io.IOException;
 import java.lang.reflect.UndeclaredThrowableException;
@@ -31,7 +31,7 @@ import org.asynchttpclient.config.AsyncHttpClientConfigDefaults;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import astar.ihpc.umgc.umgcscraper.util.ScraperRequest.Status;
+import astar.ihpc.umgc.scraper.util.ScraperRequest.Status;
 import io.netty.handler.codec.http.HttpHeaders;
 
 

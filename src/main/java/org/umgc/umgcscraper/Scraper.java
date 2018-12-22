@@ -5,20 +5,18 @@
  */
 package org.umgc.umgcscraper;
 
-import astar.ihpc.umgc.umgcscraper.util.PaginationRequest;
-import astar.ihpc.umgc.umgcscraper.util.PaginationResult;
-import astar.ihpc.umgc.umgcscraper.util.RealTimeStepper;
-import astar.ihpc.umgc.umgcscraper.util.ScraperClient;
-import astar.ihpc.umgc.umgcscraper.util.ScraperResult;
-import astar.ihpc.umgc.umgcscraper.util.ScraperUtil;
-import java.io.BufferedReader;
+import astar.ihpc.umgc.scraper.util.PaginationRequest;
+import astar.ihpc.umgc.scraper.util.PaginationResult;
+import astar.ihpc.umgc.scraper.util.RealTimeStepper;
+import astar.ihpc.umgc.scraper.util.ScraperClient;
+import astar.ihpc.umgc.scraper.util.ScraperResult;
+import astar.ihpc.umgc.scraper.util.ScraperUtil;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -29,18 +27,13 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
 import java.util.function.BiPredicate;
 import java.util.function.Function;
 import java.util.function.IntFunction;
@@ -75,22 +68,21 @@ public class Scraper implements Daemon{
     public static void main(String[] args) throws IOException, ParseException, InterruptedException, ExecutionException {
         
         JSONParser parser = new JSONParser();
-        Object obj = parser.parse(new FileReader("bs-scraper.conf"));
+        Object obj = parser.parse(new FileReader("/etc/bs-scraper.conf"));
         JSONObject jsonObject = (JSONObject) obj;
         System.out.println(jsonObject);
         
         String OutputFile = (String)jsonObject.get("outputfile");
         System.out.println(OutputFile);
-        long loop = (Long)jsonObject.get("loop");
         
         String accountKey = (String)jsonObject.get("accountkey");
         
         final ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(1);
-        ScraperClient client = ScraperUtil.createScraperClient(8, 50);
+        ScraperClient client = ScraperUtil.createScraperClient(8, 250);
         
         final long startTimeMillis = ScraperUtil.convertToTimeMillis(2018, 1, 1, 0, 0, 0, ZoneId.of("Asia/Singapore"));
-        //final long timeStepMillis = 10800_000;//EVERY 3 HOURS
-        final long timeStepMillis = 60_000;
+        final long timeStepMillis = 10800_000;//EVERY 3 HOURS
+        //final long timeStepMillis = 60_000;
         final long maxOvershootMillis = 20_000;
         final long maxRandomDelayMillis = 5_000;
         
