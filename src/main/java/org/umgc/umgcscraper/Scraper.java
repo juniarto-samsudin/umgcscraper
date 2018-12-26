@@ -5,20 +5,18 @@
  */
 package org.umgc.umgcscraper;
 
-import astar.ihpc.umgc.umgcscraper.util.PaginationRequest;
-import astar.ihpc.umgc.umgcscraper.util.PaginationResult;
-import astar.ihpc.umgc.umgcscraper.util.RealTimeStepper;
-import astar.ihpc.umgc.umgcscraper.util.ScraperClient;
-import astar.ihpc.umgc.umgcscraper.util.ScraperResult;
-import astar.ihpc.umgc.umgcscraper.util.ScraperUtil;
-import java.io.BufferedReader;
+import astar.ihpc.umgc.scraper.util.PaginationRequest;
+import astar.ihpc.umgc.scraper.util.PaginationResult;
+import astar.ihpc.umgc.scraper.util.RealTimeStepper;
+import astar.ihpc.umgc.scraper.util.ScraperClient;
+import astar.ihpc.umgc.scraper.util.ScraperResult;
+import astar.ihpc.umgc.scraper.util.ScraperUtil;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -27,20 +25,14 @@ import java.text.SimpleDateFormat;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
 import java.util.function.BiPredicate;
 import java.util.function.Function;
 import java.util.function.IntFunction;
@@ -86,11 +78,11 @@ public class Scraper implements Daemon{
         String accountKey = (String)jsonObject.get("accountkey");
         
         final ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(1);
-        ScraperClient client = ScraperUtil.createScraperClient(8, 50);
+        ScraperClient client = ScraperUtil.createScraperClient(8, 250);
         
         final long startTimeMillis = ScraperUtil.convertToTimeMillis(2018, 1, 1, 0, 0, 0, ZoneId.of("Asia/Singapore"));
         //final long timeStepMillis = 60_000;
-        final long timeStepMillis = 10_800_000;//Three Hours
+        final long timeStepMillis = 86_400_000;//24 Hours
         final long maxOvershootMillis = 20_000;
         final long maxRandomDelayMillis = 5_000;
         
@@ -129,8 +121,8 @@ public class Scraper implements Daemon{
 		lastPageTest, emptyPageTest, goodResultTest, retryOnErrorTest, maxRetries, retryMinDelayMillis, retryMaxDelayMillis
 	);
         
-        List<Map<String,String>> StateList = new ArrayList<>();
-        Map<String, String> ChangeStatus = new HashMap<>();
+        //List<Map<String,String>> StateList = new ArrayList<>();
+        //Map<String, String> ChangeStatus = new HashMap<>();
         while (true){
             try{
                     System.out.println("Waiting for next step...");
@@ -157,6 +149,7 @@ public class Scraper implements Daemon{
                         writeFile(pres.getResponse(i).getResponseBody(), DirPath, i, CurState);
 			System.out.println(String.format("Page %d: %d road work", pageNo, doc.getValue().size()));
                     }
+                    /*
                     StateList.add(CurState);
                     
                     if (StateList.size() == 2){
@@ -174,7 +167,7 @@ public class Scraper implements Daemon{
                     for (Map.Entry<String, String> entry : ChangeStatus.entrySet()){
                         System.out.println("Folder: " + entry.getKey() + " Value: " + entry.getValue());
                     }
-                    
+                    */
                     
                     
                     String OutputZipFile = OutputFile+FolderName+".zip";
