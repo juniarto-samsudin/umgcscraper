@@ -1,4 +1,4 @@
-package astar.ihpc.umgc.umgcscraper.util;
+package astar.ihpc.umgc.scraper.util;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.function.BiConsumer;

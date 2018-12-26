@@ -1,4 +1,4 @@
-package astar.ihpc.umgc.umgcscraper.util;
+package astar.ihpc.umgc.scraper.util;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -13,6 +13,8 @@ import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiPredicate;
 import java.util.function.Function;
 import java.util.function.IntFunction;
@@ -38,6 +40,7 @@ public class PaginationRequest<T> {
 	private final BiPredicate<Request, Throwable> retryOnErrorTest;
 	private final int maxRetries;
 	private final int retryMinDelayMillis, retryMaxDelayMillis;
+	private final AtomicLong previouslyKnownLastPage = new AtomicLong(10000);
 	public PaginationRequest(IntFunction<Request> pageCreateFunction, 
 			Function<Request, CompletableFuture<ScraperResult<T>>> pageRequestFunction, ScheduledThreadPoolExecutor scheduler, int batchSize, 
 			Predicate<ScraperResult<T>> lastPageTest, Predicate<ScraperResult<T>> emptyPageTest, Predicate<ScraperResult<T>> goodResultTest,
@@ -130,6 +133,8 @@ public class PaginationRequest<T> {
 				if (pv >= v) throw new IllegalArgumentException();
 			}
 		}
+		final Function<Request, CompletableFuture<ScraperResult<T>>> origPageRequestFunction = pageRequestFunction;
+		final long previouslyKnownLastPageValue = this.previouslyKnownLastPage.get();
 		class PaginationRequestWorker{
 			final PaginationRequestWorker lock = this;
 			final CompletableFuture<PaginationResult<T>> finalResult;
@@ -137,6 +142,11 @@ public class PaginationRequest<T> {
 			final Map<Integer, Request> cachedRequests = new LinkedHashMap<>();
 			final Map<Integer, Integer> retryCounts = new LinkedHashMap<>();
 			AtomicBoolean done = new AtomicBoolean(false);
+			AtomicInteger requestCount = new AtomicInteger(0);
+			final Function<Request, CompletableFuture<ScraperResult<T>>> pageRequestFunction = req->{
+				requestCount.incrementAndGet();
+				return origPageRequestFunction.apply(req);
+			};
 			final ScheduledFuture<?> deadlineTicker;
 			boolean lastPageReached;
 			int firstPageNo = initialPages2.get(0);
@@ -279,6 +289,7 @@ public class PaginationRequest<T> {
 									if (lastPageReached) {
 										//System.out.println("last page reached");
 										lastPageNo = pageNo;
+										previouslyKnownLastPage.set(lastPageNo);
 									}
 								}
 								boolean allDone = false;
@@ -319,7 +330,7 @@ public class PaginationRequest<T> {
 											CompletableFuture<ScraperResult<T>> f = entry.getValue();
 											if (i <= lastPageNo) {
 												ScraperResult<T> r = f.join();
-												if (emptyPageTest == null || !emptyPageTest.test(r)) {
+												if (pageNumbers.isEmpty() || emptyPageTest == null || !emptyPageTest.test(r)) {
 													scraperResults.add(r);
 													pageNumbers.add(i);
 													retryCounts2.add(retryCounts.get(i));
@@ -331,7 +342,7 @@ public class PaginationRequest<T> {
 											}
 											
 										}
-										pres = new PaginationResult<T>(pageNumbers, scraperResults, retryCounts2, retryCountTotal, createTimeMillis, System.currentTimeMillis());
+										pres = new PaginationResult<T>(pageNumbers, scraperResults, retryCounts2, requestCount.get(), retryCountTotal, createTimeMillis, System.currentTimeMillis());
 										//finalResult.complete(pres);
 									}
 								}
@@ -340,6 +351,13 @@ public class PaginationRequest<T> {
 									for (int nextPageNo = pageNo + 1; nextPageNo < pageNo + batchSize; nextPageNo++) {
 										if (!futures.containsKey(nextPageNo)) {
 											requestPage(nextPageNo, 0);
+											if (nextPageNo == previouslyKnownLastPageValue) {
+												//Hmm, pause here, let's see what the last page gives us.
+												break;
+											}
+										} else if (nextPageNo == previouslyKnownLastPageValue) {
+											//Hmm, should we go beyond the next page?
+											break; //No.
 										}
 									}
 								}
@@ -385,6 +403,9 @@ public class PaginationRequest<T> {
 			//Request initial pages.
 			for (int pageNo : initialPages) {
 				worker.requestPage(pageNo, 0);
+				if (pageNo == previouslyKnownLastPageValue) {
+					break; //Stop here for now.
+				}
 			}
 		}
 		return worker.finalResult;
