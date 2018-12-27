@@ -65,7 +65,7 @@ public class Scraper implements Daemon{
     public static void main(String[] args) throws IOException, ParseException, InterruptedException, ExecutionException {
         
         JSONParser parser = new JSONParser();
-        Object obj = parser.parse(new FileReader("/etc/traffic-incident-scraper.conf"));
+        Object obj = parser.parse(new FileReader("/etc/vms-scraper.conf"));
         JSONObject jsonObject = (JSONObject) obj;
         System.out.println(jsonObject);
         
@@ -88,22 +88,22 @@ public class Scraper implements Daemon{
         final DateTimeFormatter dateTimeFmt = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
         
         final IntFunction<Request> pageCreateFunction = pageNo->{
-		String url = String.format("http://datamall2.mytransport.sg/ltaodataservice/TrafficIncidents?$skip=%d", pageNo * 500);
+		String url = String.format("http://datamall2.mytransport.sg/ltaodataservice/VMS?$skip=%d", pageNo * 500);
 		Request req = ScraperUtil.createRequestBuilder().setUrl(url).setHeader("AccountKey", accountKey).build();
 		return req;
 	};
         
-        final Function<Request, CompletableFuture<ScraperResult<TrafficIncidentDocumentJson>>> pageRequestFunction = req -> {
-		return client.requestJson(req, TrafficIncidentDocumentJson.class);
+        final Function<Request, CompletableFuture<ScraperResult<VmsDocumentJson>>> pageRequestFunction = req -> {
+		return client.requestJson(req, VmsDocumentJson.class);
 	};
         
         final int batchSize = client.getMaxConcurrentRequests() * 2;
         
-        final Predicate<ScraperResult<TrafficIncidentDocumentJson>> lastPageTest = (res)->res.getResponseData().getValue().size() < 500;
+        final Predicate<ScraperResult<VmsDocumentJson>> lastPageTest = (res)->res.getResponseData().getValue().size() < 500;
         
-        final Predicate<ScraperResult<TrafficIncidentDocumentJson>> emptyPageTest = (res)->res.getResponseData().getValue().isEmpty();
+        final Predicate<ScraperResult<VmsDocumentJson>> emptyPageTest = (res)->res.getResponseData().getValue().isEmpty();
         
-        final Predicate<ScraperResult<TrafficIncidentDocumentJson>> goodResultTest = (res)->true;
+        final Predicate<ScraperResult<VmsDocumentJson>> goodResultTest = (res)->true;
         
         final BiPredicate<Request, Throwable> retryOnErrorTest = (req, t)->true;
         
@@ -112,7 +112,7 @@ public class Scraper implements Daemon{
         final int retryMinDelayMillis = 1000;
         final int retryMaxDelayMillis = 3000;
         
-        final PaginationRequest<TrafficIncidentDocumentJson> preq = new PaginationRequest<>(
+        final PaginationRequest<VmsDocumentJson> preq = new PaginationRequest<>(
 		pageCreateFunction, pageRequestFunction, scheduler, batchSize, 
 		lastPageTest, emptyPageTest, goodResultTest, retryOnErrorTest, maxRetries, retryMinDelayMillis, retryMaxDelayMillis
 	);
@@ -125,10 +125,10 @@ public class Scraper implements Daemon{
             
                     long deadlineMillis = stepper.calcCurrentStepMillis() + maxRuntimeMillis;
                     
-                    CompletableFuture<PaginationResult<TrafficIncidentDocumentJson>> future = preq.requestPages(deadlineMillis);
-                    PaginationResult<TrafficIncidentDocumentJson> pres = future.join();
+                    CompletableFuture<PaginationResult<VmsDocumentJson>> future = preq.requestPages(deadlineMillis);
+                    PaginationResult<VmsDocumentJson> pres = future.join();
                     int size = pres.size(); //Total number of pages returned.
-                    List<TrafficIncidentDocumentJson> allDocs = pres.getResponseData(); //Get all the response data in a list.
+                    List<VmsDocumentJson> allDocs = pres.getResponseData(); //Get all the response data in a list.
                     
                     String DirPath = createDirectory(OutputFile);
                     System.out.println("DIRPATH : " + DirPath);
@@ -137,9 +137,9 @@ public class Scraper implements Daemon{
                     System.out.println(FolderName);
                     for (int i = 0; i < size; i++) {
 			int pageNo = pres.getPageNumber(i); //Usually pageNo==i, but sometimes you request specific pages only.
-			TrafficIncidentDocumentJson doc = allDocs.get(i);
+			VmsDocumentJson doc = allDocs.get(i);
                         writeFile(pres.getResponse(i).getResponseBody(), DirPath, i);
-			System.out.println(String.format("Page %d: %d incidents", pageNo, doc.getValue().size()));
+			System.out.println(String.format("Page %d: %d vms", pageNo, doc.getValue().size()));
                     }
                     String OutputZipFile = OutputFile+FolderName+".zip";
                     System.out.println("OutputZipFile : " + OutputZipFile);
@@ -151,7 +151,7 @@ public class Scraper implements Daemon{
                     //System.out.println("FILEPATH: " + theMetadata.getFilePath());
                     //System.out.println("JSON: " + theMetadata.getJsonFile());
                     
-                    Messenger theMessenger = new Messenger("traffic-incident",FolderName,theMetadata.getJsonFile());
+                    Messenger theMessenger = new Messenger("vms",FolderName,theMetadata.getJsonFile());
                     theMessenger.send();
                     theZipper.delete(new File(DirPath));
                     System.out.println("Results processed.");
