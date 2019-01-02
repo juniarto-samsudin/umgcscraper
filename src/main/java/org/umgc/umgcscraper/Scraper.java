@@ -68,7 +68,7 @@ public class Scraper implements Daemon{
     public static void main(String[] args) throws IOException, ParseException, InterruptedException, ExecutionException {
         
         JSONParser parser = new JSONParser();
-        Object obj = parser.parse(new FileReader("/etc/erp-rate-scraper.conf"));
+        Object obj = parser.parse(new FileReader("/etc/bus-route-scraper.conf"));
         JSONObject jsonObject = (JSONObject) obj;
         System.out.println(jsonObject);
         
@@ -92,7 +92,7 @@ public class Scraper implements Daemon{
         final DateTimeFormatter dateTimeFmt = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
         
         final IntFunction<Request> pageCreateFunction = pageNo->{
-		String url = String.format("http://datamall2.mytransport.sg/ltaodataservice/TrainServiceAlerts?$skip=%d", pageNo * 500);
+		String url = String.format("http://datamall2.mytransport.sg/ltaodataservice/BusRoutes?$skip=%d", pageNo * 500);
 		Request req = ScraperUtil.createRequestBuilder().setUrl(url).setHeader("AccountKey", accountKey).build();
 		return req;
 	};
@@ -207,7 +207,7 @@ public class Scraper implements Daemon{
         //System.out.println("FILEPATH: " + theMetadata.getFilePath());
         //System.out.println("JSON: " + theMetadata.getJsonFile());
                     
-        Messenger theMessenger = new Messenger("erp-rate",FolderName,theMetadata.getJsonFile());
+        Messenger theMessenger = new Messenger("bus-route",FolderName,theMetadata.getJsonFile());
         theMessenger.send();
         theZipper.delete(new File(DirPath));
     }
