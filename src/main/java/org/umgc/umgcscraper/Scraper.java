@@ -76,7 +76,7 @@ public class Scraper implements Daemon{
         String accountKey = (String)jsonObject.get("accountkey");
         
         final ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(1);
-        ScraperClient client = ScraperUtil.createScraperClient(8, 50);
+        ScraperClient client = ScraperUtil.createScraperClient(8, 250);
         
         final long startTimeMillis = ScraperUtil.convertToTimeMillis(2018, 1, 1, 0, 0, 0, ZoneId.of("Asia/Singapore"));
         final long timeStepMillis = 60_000;
