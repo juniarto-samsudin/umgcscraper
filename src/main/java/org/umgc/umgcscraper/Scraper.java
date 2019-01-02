@@ -68,7 +68,7 @@ public class Scraper implements Daemon{
     public static void main(String[] args) throws IOException, ParseException, InterruptedException, ExecutionException {
         
         JSONParser parser = new JSONParser();
-        Object obj = parser.parse(new FileReader("/etc/train-service-scraper.conf"));
+        Object obj = parser.parse(new FileReader("/etc/erp-rate-scraper.conf"));
         JSONObject jsonObject = (JSONObject) obj;
         System.out.println(jsonObject);
         
@@ -207,7 +207,7 @@ public class Scraper implements Daemon{
         //System.out.println("FILEPATH: " + theMetadata.getFilePath());
         //System.out.println("JSON: " + theMetadata.getJsonFile());
                     
-        Messenger theMessenger = new Messenger("train-service",FolderName,theMetadata.getJsonFile());
+        Messenger theMessenger = new Messenger("erp-rate",FolderName,theMetadata.getJsonFile());
         theMessenger.send();
         theZipper.delete(new File(DirPath));
     }
