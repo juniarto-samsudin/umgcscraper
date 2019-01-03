@@ -65,7 +65,7 @@ public class Scraper implements Daemon{
     public static void main(String[] args) throws IOException, ParseException, InterruptedException, ExecutionException {
         
         JSONParser parser = new JSONParser();
-        Object obj = parser.parse(new FileReader("/etc/ett-scraper.conf"));
+        Object obj = parser.parse(new FileReader("/etc/faulty-traffic-scraper.conf"));
         JSONObject jsonObject = (JSONObject) obj;
         System.out.println(jsonObject);
         
@@ -77,18 +77,18 @@ public class Scraper implements Daemon{
         final ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(1);
         ScraperClient client = ScraperUtil.createScraperClient(8, 250);
         
-        final long startTimeMillis = ScraperUtil.convertToTimeMillis(2018, 1, 1, 0, 4, 0, ZoneId.of("Asia/Singapore"));
-        final long timeStepMillis = 300_000; //5 Minutes
-        final long maxOvershootMillis = 120_000;
+        final long startTimeMillis = ScraperUtil.convertToTimeMillis(2018, 1, 1, 0, 0, 0, ZoneId.of("Asia/Singapore"));
+        final long timeStepMillis = 120_000; //2 Minutes
+        final long maxOvershootMillis = 20_000;
         final long maxRandomDelayMillis = 5_000;
         
-        final long maxRuntimeMillis = (4*60+30) * 1000L; 
+        final long maxRuntimeMillis = 100_000; 
         
         final RealTimeStepper stepper = ScraperUtil.createRealTimeStepper(startTimeMillis, timeStepMillis, maxOvershootMillis, maxRandomDelayMillis);
         final DateTimeFormatter dateTimeFmt = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
         
         final IntFunction<Request> pageCreateFunction = pageNo->{
-		String url = String.format("http://datamall2.mytransport.sg/ltaodataservice/EstTravelTimes?$skip=%d", pageNo * 500);
+		String url = String.format("http://datamall2.mytransport.sg/ltaodataservice/FaultyTrafficLights?$skip=%d", pageNo * 500);
 		Request req = ScraperUtil.createRequestBuilder().setUrl(url).setHeader("AccountKey", accountKey).build();
 		return req;
 	};
@@ -139,7 +139,7 @@ public class Scraper implements Daemon{
 			int pageNo = pres.getPageNumber(i); //Usually pageNo==i, but sometimes you request specific pages only.
 			BlackBoxLtaDataMallDocumentJson doc = allDocs.get(i);
                         writeFile(pres.getResponse(i).getResponseBody(), DirPath, i);
-			System.out.println(String.format("Page %d: %d ett", pageNo, doc.getValue().size()));
+			System.out.println(String.format("Page %d: %d faulty", pageNo, doc.getValue().size()));
                     }
                     String OutputZipFile = OutputFile+FolderName+".zip";
                     System.out.println("OutputZipFile : " + OutputZipFile);
@@ -151,7 +151,7 @@ public class Scraper implements Daemon{
                     //System.out.println("FILEPATH: " + theMetadata.getFilePath());
                     //System.out.println("JSON: " + theMetadata.getJsonFile());
                     
-                    Messenger theMessenger = new Messenger("estimated-travel-time",FolderName,theMetadata.getJsonFile());
+                    Messenger theMessenger = new Messenger("faulty-traffic-light",FolderName,theMetadata.getJsonFile());
                     theMessenger.send();
                     theZipper.delete(new File(DirPath));
                     System.out.println("Results processed.");
