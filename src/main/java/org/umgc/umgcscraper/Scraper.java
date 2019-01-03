@@ -65,46 +65,45 @@ public class Scraper implements Daemon{
     public static void main(String[] args) throws IOException, ParseException, InterruptedException, ExecutionException {
         
         JSONParser parser = new JSONParser();
-        Object obj = parser.parse(new FileReader("/etc/cp-scraper.conf"));
+        Object obj = parser.parse(new FileReader("/etc/ett-scraper.conf"));
         JSONObject jsonObject = (JSONObject) obj;
         System.out.println(jsonObject);
         
         String OutputFile = (String)jsonObject.get("outputfile");
         System.out.println(OutputFile);
-        long loop = (Long)jsonObject.get("loop");
         
         String accountKey = (String)jsonObject.get("accountkey");
         
         final ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(1);
         ScraperClient client = ScraperUtil.createScraperClient(8, 250);
         
-        final long startTimeMillis = ScraperUtil.convertToTimeMillis(2018, 1, 1, 0, 0, 15, ZoneId.of("Asia/Singapore"));
-        final long timeStepMillis = 60_000;
-        final long maxOvershootMillis = 20_000;
+        final long startTimeMillis = ScraperUtil.convertToTimeMillis(2018, 1, 1, 0, 4, 0, ZoneId.of("Asia/Singapore"));
+        final long timeStepMillis = 300_000; //5 Minutes
+        final long maxOvershootMillis = 120_000;
         final long maxRandomDelayMillis = 5_000;
         
-        final long maxRuntimeMillis = 35_000; 
+        final long maxRuntimeMillis = (4*60+30) * 1000L; 
         
         final RealTimeStepper stepper = ScraperUtil.createRealTimeStepper(startTimeMillis, timeStepMillis, maxOvershootMillis, maxRandomDelayMillis);
         final DateTimeFormatter dateTimeFmt = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
         
         final IntFunction<Request> pageCreateFunction = pageNo->{
-		String url = String.format("http://datamall2.mytransport.sg/ltaodataservice/CarParkAvailabilityv2?$skip=%d", pageNo * 500);
+		String url = String.format("http://datamall2.mytransport.sg/ltaodataservice/EstTravelTimes?$skip=%d", pageNo * 500);
 		Request req = ScraperUtil.createRequestBuilder().setUrl(url).setHeader("AccountKey", accountKey).build();
 		return req;
 	};
         
-        final Function<Request, CompletableFuture<ScraperResult<CarparkAvailabilityDocumentJson>>> pageRequestFunction = req -> {
-		return client.requestJson(req, CarparkAvailabilityDocumentJson.class);
+        final Function<Request, CompletableFuture<ScraperResult<BlackBoxLtaDataMallDocumentJson>>> pageRequestFunction = req -> {
+		return client.requestJson(req,BlackBoxLtaDataMallDocumentJson.class);
 	};
         
         final int batchSize = client.getMaxConcurrentRequests() * 2;
         
-        final Predicate<ScraperResult<CarparkAvailabilityDocumentJson>> lastPageTest = (res)->res.getResponseData().getValue().size() < 500;
+        final Predicate<ScraperResult<BlackBoxLtaDataMallDocumentJson>> lastPageTest = (res)->res.getResponseData().getValue().size() < 500;
         
-        final Predicate<ScraperResult<CarparkAvailabilityDocumentJson>> emptyPageTest = (res)->res.getResponseData().getValue().isEmpty();
+        final Predicate<ScraperResult<BlackBoxLtaDataMallDocumentJson>> emptyPageTest = (res)->res.getResponseData().getValue().isEmpty();
         
-        final Predicate<ScraperResult<CarparkAvailabilityDocumentJson>> goodResultTest = (res)->true;
+        final Predicate<ScraperResult<BlackBoxLtaDataMallDocumentJson>> goodResultTest = (res)->true;
         
         final BiPredicate<Request, Throwable> retryOnErrorTest = (req, t)->true;
         
@@ -113,7 +112,7 @@ public class Scraper implements Daemon{
         final int retryMinDelayMillis = 1000;
         final int retryMaxDelayMillis = 3000;
         
-        final PaginationRequest<CarparkAvailabilityDocumentJson> preq = new PaginationRequest<>(
+        final PaginationRequest<BlackBoxLtaDataMallDocumentJson> preq = new PaginationRequest<>(
 		pageCreateFunction, pageRequestFunction, scheduler, batchSize, 
 		lastPageTest, emptyPageTest, goodResultTest, retryOnErrorTest, maxRetries, retryMinDelayMillis, retryMaxDelayMillis
 	);
@@ -126,10 +125,10 @@ public class Scraper implements Daemon{
             
                     long deadlineMillis = stepper.calcCurrentStepMillis() + maxRuntimeMillis;
                     
-                    CompletableFuture<PaginationResult<CarparkAvailabilityDocumentJson>> future = preq.requestPages(deadlineMillis);
-                    PaginationResult<CarparkAvailabilityDocumentJson> pres = future.join();
+                    CompletableFuture<PaginationResult<BlackBoxLtaDataMallDocumentJson>> future = preq.requestPages(deadlineMillis);
+                    PaginationResult<BlackBoxLtaDataMallDocumentJson> pres = future.join();
                     int size = pres.size(); //Total number of pages returned.
-                    List<CarparkAvailabilityDocumentJson> allDocs = pres.getResponseData(); //Get all the response data in a list.
+                    List<BlackBoxLtaDataMallDocumentJson> allDocs = pres.getResponseData(); //Get all the response data in a list.
                     
                     String DirPath = createDirectory(OutputFile);
                     System.out.println("DIRPATH : " + DirPath);
@@ -138,9 +137,9 @@ public class Scraper implements Daemon{
                     System.out.println(FolderName);
                     for (int i = 0; i < size; i++) {
 			int pageNo = pres.getPageNumber(i); //Usually pageNo==i, but sometimes you request specific pages only.
-			CarparkAvailabilityDocumentJson doc = allDocs.get(i);
+			BlackBoxLtaDataMallDocumentJson doc = allDocs.get(i);
                         writeFile(pres.getResponse(i).getResponseBody(), DirPath, i);
-			System.out.println(String.format("Page %d: %d carpark", pageNo, doc.getValue().size()));
+			System.out.println(String.format("Page %d: %d ett", pageNo, doc.getValue().size()));
                     }
                     String OutputZipFile = OutputFile+FolderName+".zip";
                     System.out.println("OutputZipFile : " + OutputZipFile);
@@ -152,7 +151,7 @@ public class Scraper implements Daemon{
                     //System.out.println("FILEPATH: " + theMetadata.getFilePath());
                     //System.out.println("JSON: " + theMetadata.getJsonFile());
                     
-                    Messenger theMessenger = new Messenger("carpark-availability",FolderName,theMetadata.getJsonFile());
+                    Messenger theMessenger = new Messenger("estimated-travel-time",FolderName,theMetadata.getJsonFile());
                     theMessenger.send();
                     theZipper.delete(new File(DirPath));
                     System.out.println("Results processed.");
