@@ -71,7 +71,7 @@ public class Scraper implements Daemon{
     public static void main(String[] args) throws IOException, ParseException, InterruptedException, ExecutionException {
         
         JSONParser parser = new JSONParser();
-        Object obj = parser.parse(new FileReader("/etc/pvodtrain-scraper.conf"));
+        Object obj = parser.parse(new FileReader("/etc/pvtrain-scraper.conf"));
         JSONObject jsonObject = (JSONObject) obj;
         System.out.println(jsonObject);
         
@@ -104,7 +104,7 @@ public class Scraper implements Daemon{
             
                     Map<String, String> CurState = new HashMap<>();
                     
-                    String url = "http://datamall2.mytransport.sg/ltaodataservice/PV/ODTrain";
+                    String url = "http://datamall2.mytransport.sg/ltaodataservice/PV/Train";
                     Request req = ScraperUtil.createRequestBuilder().setUrl(url).setHeader("AccountKey", accountKey).build();
                     CompletableFuture<ScraperResult<PasVolOdBusDocumentJson>> future = client.requestJson(req, PasVolOdBusDocumentJson.class);
                     ScraperResult<PasVolOdBusDocumentJson> result = future.join();
@@ -138,7 +138,7 @@ public class Scraper implements Daemon{
                     //ALWAYS SEND
                     if (StateList.size() == 1){
                         System.out.println("FIRST ENTRY! JUST GO AHEAD");
-                        Messenger theMessenger = new Messenger("passenger-volume-by-odtrain",OutputFile,theMetadata.getJsonFile());
+                        Messenger theMessenger = new Messenger("passenger-volume-by-train",OutputFile,theMetadata.getJsonFile());
                         theMessenger.send();
                         System.out.println(theMetadata.getCurDate());
                     } else if (StateList.size() > 1){
@@ -154,7 +154,7 @@ public class Scraper implements Daemon{
                                 System.out.println("Same Month!");
                                 if (date1 > 15 && date0 <=15){
                                     System.out.println("date1 > 15 and date0 <=15");
-                                    Messenger theMessenger = new Messenger("passenger-volume-by-odtrain",OutputFile,theMetadata.getJsonFile());
+                                    Messenger theMessenger = new Messenger("passenger-volume-by-train",OutputFile,theMetadata.getJsonFile());
                                     theMessenger.send();
                                     StateList.remove(0);
                                 }else{
@@ -167,7 +167,7 @@ public class Scraper implements Daemon{
                                 System.out.println("Different Month!");
                                 if (date1 > 15 && date0 > 15){
                                     System.out.println("date1 > 15 and date0 >15");
-                                    Messenger theMessenger = new Messenger("passenger-volume-by-odtrain",OutputFile,theMetadata.getJsonFile());
+                                    Messenger theMessenger = new Messenger("passenger-volume-by-train",OutputFile,theMetadata.getJsonFile());
                                     theMessenger.send();
                                     StateList.remove(0);
                                 }else{
@@ -180,7 +180,7 @@ public class Scraper implements Daemon{
                             
                             
                         }else{//MD5SUM IS DIFFERENT, SURE SEND
-                            Messenger theMessenger = new Messenger("passenger-volume-by-odtrain",OutputFile,theMetadata.getJsonFile());
+                            Messenger theMessenger = new Messenger("passenger-volume-by-train",OutputFile,theMetadata.getJsonFile());
                             theMessenger.send();
                             System.out.println(theMetadata.getCurDate());
                             StateList.remove(0);
