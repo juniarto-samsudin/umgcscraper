@@ -78,7 +78,7 @@ public class Scraper implements Daemon{
         final ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(1);
         ScraperClient client = ScraperUtil.createScraperClient(8, 250);
         
-        final long startTimeMillis = ScraperUtil.convertToTimeMillis(2018, 1, 1, 0, 0, 0, ZoneId.of("Asia/Singapore"));
+        final long startTimeMillis = ScraperUtil.convertToTimeMillis(2018, 1, 1, 0, 0, 15, ZoneId.of("Asia/Singapore"));
         final long timeStepMillis = 60_000;
         final long maxOvershootMillis = 20_000;
         final long maxRandomDelayMillis = 5_000;
