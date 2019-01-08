@@ -11,12 +11,18 @@ import astar.ihpc.umgc.scraper.util.RealTimeStepper;
 import astar.ihpc.umgc.scraper.util.ScraperClient;
 import astar.ihpc.umgc.scraper.util.ScraperResult;
 import astar.ihpc.umgc.scraper.util.ScraperUtil;
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.BufferedWriter;
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.FileWriter;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -25,6 +31,8 @@ import java.text.SimpleDateFormat;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.CompletableFuture;
@@ -44,10 +52,16 @@ import org.json.simple.parser.ParseException;
 import org.apache.commons.daemon.Daemon;
 import org.apache.commons.daemon.DaemonContext;
 import org.apache.commons.daemon.DaemonInitException;
+import org.apache.commons.io.IOUtils;
+import org.apache.http.HttpResponse;
+import org.apache.http.client.HttpClient;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.asynchttpclient.Request;
+import org.json.simple.JSONArray;
 /**
  *
  * @author samsudinj
@@ -65,7 +79,7 @@ public class Scraper implements Daemon{
     public static void main(String[] args) throws IOException, ParseException, InterruptedException, ExecutionException {
         
         JSONParser parser = new JSONParser();
-        Object obj = parser.parse(new FileReader("/etc/ta-scraper.conf"));
+        Object obj = parser.parse(new FileReader("traffic-image-scraper.conf"));
         JSONObject jsonObject = (JSONObject) obj;
         System.out.println(jsonObject);
         
@@ -88,22 +102,22 @@ public class Scraper implements Daemon{
         final DateTimeFormatter dateTimeFmt = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
         
         final IntFunction<Request> pageCreateFunction = pageNo->{
-		String url = String.format("http://datamall2.mytransport.sg/ltaodataservice/Taxi-Availability?$skip=%d", pageNo * 500);
+		String url = String.format("http://datamall2.mytransport.sg/ltaodataservice/Traffic-Images?$skip=%d", pageNo * 500);
 		Request req = ScraperUtil.createRequestBuilder().setUrl(url).setHeader("AccountKey", accountKey).build();
 		return req;
 	};
         
-        final Function<Request, CompletableFuture<ScraperResult<TaxiAvailabilityDocumentJson>>> pageRequestFunction = req -> {
-		return client.requestJson(req, TaxiAvailabilityDocumentJson.class);
+        final Function<Request, CompletableFuture<ScraperResult<TrafficImageDocumentJson>>> pageRequestFunction = req -> {
+		return client.requestJson(req, TrafficImageDocumentJson.class);
 	};
         
         final int batchSize = client.getMaxConcurrentRequests() * 2;
         
-        final Predicate<ScraperResult<TaxiAvailabilityDocumentJson>> lastPageTest = (res)->res.getResponseData().getValue().size() < 500;
+        final Predicate<ScraperResult<TrafficImageDocumentJson>> lastPageTest = (res)->res.getResponseData().getValue().size() < 500;
         
-        final Predicate<ScraperResult<TaxiAvailabilityDocumentJson>> emptyPageTest = (res)->res.getResponseData().getValue().isEmpty();
+        final Predicate<ScraperResult<TrafficImageDocumentJson>> emptyPageTest = (res)->res.getResponseData().getValue().isEmpty();
         
-        final Predicate<ScraperResult<TaxiAvailabilityDocumentJson>> goodResultTest = (res)->true;
+        final Predicate<ScraperResult<TrafficImageDocumentJson>> goodResultTest = (res)->true;
         
         final BiPredicate<Request, Throwable> retryOnErrorTest = (req, t)->true;
         
@@ -112,11 +126,11 @@ public class Scraper implements Daemon{
         final int retryMinDelayMillis = 1000;
         final int retryMaxDelayMillis = 3000;
         
-        final PaginationRequest<TaxiAvailabilityDocumentJson> preq = new PaginationRequest<>(
+        final PaginationRequest<TrafficImageDocumentJson> preq = new PaginationRequest<>(
 		pageCreateFunction, pageRequestFunction, scheduler, batchSize, 
 		lastPageTest, emptyPageTest, goodResultTest, retryOnErrorTest, maxRetries, retryMinDelayMillis, retryMaxDelayMillis
 	);
-        
+         HashSet<String> ExistingImageSet = new HashSet<>();
         while (true){
             try{
                     System.out.println("Waiting for next step...");
@@ -125,21 +139,67 @@ public class Scraper implements Daemon{
             
                     long deadlineMillis = stepper.calcCurrentStepMillis() + maxRuntimeMillis;
                     
-                    CompletableFuture<PaginationResult<TaxiAvailabilityDocumentJson>> future = preq.requestPages(deadlineMillis);
-                    PaginationResult<TaxiAvailabilityDocumentJson> pres = future.join();
+                    CompletableFuture<PaginationResult<TrafficImageDocumentJson>> future = preq.requestPages(deadlineMillis);
+                    PaginationResult<TrafficImageDocumentJson> pres = future.join();
                     int size = pres.size(); //Total number of pages returned.
-                    List<TaxiAvailabilityDocumentJson> allDocs = pres.getResponseData(); //Get all the response data in a list.
+                    List<TrafficImageDocumentJson> allDocs = pres.getResponseData(); //Get all the response data in a list.
                     
                     String DirPath = createDirectory(OutputFile);
+                    //Image Path
+                    String ImagePath = OutputFile + "images" + "/";
                     System.out.println("DIRPATH : " + DirPath);
                     String[] temp = DirPath.split(File.separator);
                     String FolderName = temp[temp.length - 1];
                     System.out.println(FolderName);
+                    
                     for (int i = 0; i < size; i++) {
 			int pageNo = pres.getPageNumber(i); //Usually pageNo==i, but sometimes you request specific pages only.
-			TaxiAvailabilityDocumentJson doc = allDocs.get(i);
+			TrafficImageDocumentJson doc = allDocs.get(i);
+                        
+                        List<Request> AwsRequestList = new ArrayList<>();
+                        List<String> ImageNameList = new ArrayList<>();
+                        for (int j = 0; j < doc.getValue().size(); j++){
+                            //System.out.println("ImageLink: " + doc.getValue().get(j).getImageLink());
+                            //awsImageDownload(OutputFile, doc.getValue().get(j).getImageLink());
+                            String AwsUrl = doc.getValue().get(j).getImageLink();
+                            String[] AwsUrlSplit = AwsUrl.split("/");
+                            System.out.println("TrueFalse: " + ExistingImageSet.contains(AwsUrlSplit[AwsUrlSplit.length - 1]));
+                            if (!ExistingImageSet.contains(AwsUrlSplit[AwsUrlSplit.length - 1])){
+                                System.out.println("Add : " + AwsUrlSplit[AwsUrlSplit.length - 1]);
+                                ExistingImageSet.add(AwsUrlSplit[AwsUrlSplit.length - 1]);
+                                String ImageFileName = OutputFile + "images/" +  AwsUrlSplit[AwsUrlSplit.length - 1];
+                                //System.out.println("ImageFileName: " + ImageFileName);
+                                ImageNameList.add(ImageFileName);
+                                Request req = ScraperUtil.createRequestBuilder().setUrl(AwsUrl).build();
+                                AwsRequestList.add(req);
+                            }else{
+                                System.out.println("Link already exist: !!!!!!!" + AwsUrl);
+                            }    
+                          
+                        }
+                        
+                        final List<CompletableFuture<ScraperResult<byte[]>>> imageFutures = new ArrayList<>();
+                        for (int j = 0; j < AwsRequestList.size(); j++){
+                            Request req = AwsRequestList.get(j);
+                            CompletableFuture<ScraperResult<byte[]>> imageFuture = client.requestBytes(req);
+                            imageFutures.add(imageFuture);
+						
+                        }
+                        
+                        for (int j = 0; j < AwsRequestList.size(); j++){
+                            CompletableFuture<ScraperResult<byte[]>> imageFuture = imageFutures.get(j);
+                            ScraperResult<byte[]> imageResult = imageFuture.join();
+                            InputStream data = new BufferedInputStream(imageResult.getResponse().getResponseBodyAsStream());
+                            OutputStream out = new BufferedOutputStream(new FileOutputStream(new File(ImageNameList.get(j))));
+                            IOUtils.copy(data, out);
+                            out.flush();
+                            out.close();
+                        
+                        }
+                        
+                        
                         writeFile(pres.getResponse(i).getResponseBody(), DirPath, i);
-			System.out.println(String.format("Page %d: %d taxis", pageNo, doc.getValue().size()));
+                        System.out.println(String.format("Page %d: %d traffic-images", pageNo, doc.getValue().size()));
                     }
                     String OutputZipFile = OutputFile+FolderName+".zip";
                     System.out.println("OutputZipFile : " + OutputZipFile);
@@ -151,7 +211,7 @@ public class Scraper implements Daemon{
                     //System.out.println("FILEPATH: " + theMetadata.getFilePath());
                     //System.out.println("JSON: " + theMetadata.getJsonFile());
                     
-                    Messenger theMessenger = new Messenger("taxi-availability",FolderName,theMetadata.getJsonFile());
+                    Messenger theMessenger = new Messenger("traffic-image",FolderName,theMetadata.getJsonFile());
                     theMessenger.send();
                     theZipper.delete(new File(DirPath));
                     System.out.println("Results processed.");
@@ -188,8 +248,40 @@ public class Scraper implements Daemon{
         System.out.println("DirPath: " + DirPath);
         Path path = Paths.get(DirPath);
         Files.createDirectories(path);
+        //Image Directory
+        String ImagePath = OutputFile + "images" + "/";
+        Path imagepath = Paths.get(ImagePath);
+        if(!Files.exists(imagepath)){
+            Files.createDirectories(imagepath);
+        }
         return DirPath;
     }
+    
+    private static void awsImageDownload(String OutputFile, String AwsUrl) throws IOException{
+        System.out.println(AwsUrl);
+        String[] temp = AwsUrl.split("/");
+        System.out.println(temp[temp.length - 1]);
+        String ImageFileName = OutputFile + "images/" +  temp[temp.length - 1];
+        
+        
+        
+        HttpClient AwsClient = HttpClientBuilder.create().build();
+        HttpGet AwsRequest = new HttpGet(AwsUrl);
+        int bufferSize = 16 *1024;
+        HttpResponse response = AwsClient.execute(AwsRequest);
+        System.out.println("Response Code: " + response.getStatusLine().getStatusCode());     
+        InputStream data = new BufferedInputStream(response.getEntity().getContent());
+        OutputStream out = new BufferedOutputStream(new FileOutputStream(new File(ImageFileName)));
+                    
+        IOUtils.copy(data, out);
+        out.flush();
+        out.close();
+    }
+    
+  
+    
+    
+    
     
     @Override
     public void init(DaemonContext dc) throws DaemonInitException, Exception {
