@@ -130,7 +130,10 @@ public class Scraper implements Daemon{
 		pageCreateFunction, pageRequestFunction, scheduler, batchSize, 
 		lastPageTest, emptyPageTest, goodResultTest, retryOnErrorTest, maxRetries, retryMinDelayMillis, retryMaxDelayMillis
 	);
-         HashSet<String> ExistingImageSet = new HashSet<>();
+        
+        
+        HashSet<String> ExistingImageSet = new HashSet<>();
+        int loop = 0;
         while (true){
             try{
                     System.out.println("Waiting for next step...");
@@ -216,7 +219,13 @@ public class Scraper implements Daemon{
                     theZipper.delete(new File(DirPath));
                     System.out.println("Results processed.");
                     System.out.println();
-                    System.out.println();    
+                    System.out.println();   
+                    loop = loop + 1;
+                    if (loop == 1440 ){
+                        loop = 0;
+                        ExistingImageSet.clear();
+                        System.out.println("HashSet Clear");
+                    }
                 } catch (CompletionException e){
                     System.err.println("An error was encountered with our scraper.");
                     e.printStackTrace();
