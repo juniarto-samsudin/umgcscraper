@@ -22,7 +22,6 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -61,7 +60,6 @@ import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.asynchttpclient.Request;
-import org.json.simple.JSONArray;
 /**
  *
  * @author samsudinj
@@ -79,7 +77,7 @@ public class Scraper implements Daemon{
     public static void main(String[] args) throws IOException, ParseException, InterruptedException, ExecutionException {
         
         JSONParser parser = new JSONParser();
-        Object obj = parser.parse(new FileReader("traffic-image-scraper.conf"));
+        Object obj = parser.parse(new FileReader("/etc/traffic-image-scraper.conf"));
         JSONObject jsonObject = (JSONObject) obj;
         
         String URL = (String)jsonObject.get("url");
@@ -90,6 +88,7 @@ public class Scraper implements Daemon{
         long maxrandomdelaymillis = (Long)jsonObject.get("maxrandomdelaymillis");
         long maxruntimemillis = (Long)jsonObject.get("maxruntimemillis");
         String messagetopic = (String)jsonObject.get("messagetopic");
+        String bootstrap = (String)jsonObject.get("bootstrap");
         
         System.out.println("-----------------------------------------------");
         System.out.println("URL                 : " + URL); 
@@ -99,6 +98,7 @@ public class Scraper implements Daemon{
         System.out.println("MaxRandomDelayMillis: " + maxrandomdelaymillis);
         System.out.println("MaxRunTimeMillis    : " + maxruntimemillis);
         System.out.println("MessageTopic        : " + messagetopic);
+        System.out.println("Bootstrap Servers   : " + bootstrap);
         System.out.println("------------------------------------------------");
         
         
@@ -163,7 +163,7 @@ public class Scraper implements Daemon{
                     String DirPath = createDirectory(OutputFile);
                     //Image Path
                     String ImagePath = OutputFile + "images" + "/";
-                    System.out.println("DIRPATH : " + DirPath);
+                    //System.out.println("DIRPATH : " + DirPath);
                     String[] temp = DirPath.split(File.separator);
                     String FolderName = temp[temp.length - 1];
                     System.out.println(FolderName);
@@ -174,14 +174,17 @@ public class Scraper implements Daemon{
                         
                         List<Request> AwsRequestList = new ArrayList<>();
                         List<String> ImageNameList = new ArrayList<>();
+                        int newDownload=0;
+                        int existing= 0;
                         for (int j = 0; j < doc.getValue().size(); j++){
                             //System.out.println("ImageLink: " + doc.getValue().get(j).getImageLink());
                             //awsImageDownload(OutputFile, doc.getValue().get(j).getImageLink());
                             String AwsUrl = doc.getValue().get(j).getImageLink();
                             String[] AwsUrlSplit = AwsUrl.split("/");
-                            System.out.println("TrueFalse: " + ExistingImageSet.contains(AwsUrlSplit[AwsUrlSplit.length - 1]));
+                            //System.out.println("TrueFalse: " + ExistingImageSet.contains(AwsUrlSplit[AwsUrlSplit.length - 1]));
                             if (!ExistingImageSet.contains(AwsUrlSplit[AwsUrlSplit.length - 1])){
-                                System.out.println("Add : " + AwsUrlSplit[AwsUrlSplit.length - 1]);
+                                //System.out.println("Add : " + AwsUrlSplit[AwsUrlSplit.length - 1]);
+                                newDownload = newDownload + 1;
                                 ExistingImageSet.add(AwsUrlSplit[AwsUrlSplit.length - 1]);
                                 String ImageFileName = OutputFile + "images/" +  AwsUrlSplit[AwsUrlSplit.length - 1];
                                 //System.out.println("ImageFileName: " + ImageFileName);
@@ -189,10 +192,14 @@ public class Scraper implements Daemon{
                                 Request req = ScraperUtil.createRequestBuilder().setUrl(AwsUrl).build();
                                 AwsRequestList.add(req);
                             }else{
-                                System.out.println("Link already exist: !!!!!!!" + AwsUrl);
-                            }    
-                          
+                                existing = existing + 1;
+                                //System.out.println("Link already exist: !!!!!!!" + AwsUrl);
+                            }      
                         }
+                        
+                        System.out.println("HashSet Size: " + ExistingImageSet.size());
+                        System.out.println("New Download: " + newDownload);
+                        System.out.println("Existing    : " + existing);
                         
                         final List<CompletableFuture<ScraperResult<byte[]>>> imageFutures = new ArrayList<>();
                         for (int j = 0; j < AwsRequestList.size(); j++){
@@ -227,7 +234,7 @@ public class Scraper implements Daemon{
                     //System.out.println("FILEPATH: " + theMetadata.getFilePath());
                     //System.out.println("JSON: " + theMetadata.getJsonFile());
                     
-                    Messenger theMessenger = new Messenger(messagetopic,FolderName,theMetadata.getJsonFile());
+                    Messenger theMessenger = new Messenger(messagetopic,FolderName,theMetadata.getJsonFile(), bootstrap);
                     theMessenger.send();
                     theZipper.delete(new File(DirPath));
                     System.out.println("Results processed.");

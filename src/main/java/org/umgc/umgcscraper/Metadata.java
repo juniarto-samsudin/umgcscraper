@@ -25,10 +25,10 @@ public class Metadata {
     }
     
     //File Size
-    public double getFileSizeInKb(){
+    public double getFileSize(){
         File file = new File(OutputZipFile);
         double bytes = file.length();
-        return bytes / 1024;
+        return bytes;
     }
     
     //File Path
@@ -64,7 +64,7 @@ public class Metadata {
         obj.put("request_timestamp",getTimeStamp());
         obj.put("file_path",getFilePath());
         obj.put("file_hash",getMd5Hash());
-        obj.put("file_length",getFileSizeInKb());
+        obj.put("file_length",getFileSize());
         return obj.toJSONString();
     }
 }
