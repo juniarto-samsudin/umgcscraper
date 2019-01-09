@@ -81,29 +81,42 @@ public class Scraper implements Daemon{
         JSONParser parser = new JSONParser();
         Object obj = parser.parse(new FileReader("traffic-image-scraper.conf"));
         JSONObject jsonObject = (JSONObject) obj;
-        System.out.println(jsonObject);
         
+        String URL = (String)jsonObject.get("url");
         String OutputFile = (String)jsonObject.get("outputfile");
-        System.out.println(OutputFile);
-        
         String accountKey = (String)jsonObject.get("accountkey");
+        long timestepmillis = (Long)jsonObject.get("timestepmillis");
+        long maxovershootmillis = (Long)jsonObject.get("maxovershootmillis");
+        long maxrandomdelaymillis = (Long)jsonObject.get("maxrandomdelaymillis");
+        long maxruntimemillis = (Long)jsonObject.get("maxruntimemillis");
+        String messagetopic = (String)jsonObject.get("messagetopic");
+        
+        System.out.println("-----------------------------------------------");
+        System.out.println("URL                 : " + URL); 
+        System.out.println("Output Directory    : " + OutputFile);
+        System.out.println("TimeStepMillis      : " + timestepmillis);
+        System.out.println("MaxOverShootMillis  : " + maxovershootmillis);
+        System.out.println("MaxRandomDelayMillis: " + maxrandomdelaymillis);
+        System.out.println("MaxRunTimeMillis    : " + maxruntimemillis);
+        System.out.println("MessageTopic        : " + messagetopic);
+        System.out.println("------------------------------------------------");
+        
         
         final ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(1);
         ScraperClient client = ScraperUtil.createScraperClient(8, 250);
         
         final long startTimeMillis = ScraperUtil.convertToTimeMillis(2018, 1, 1, 0, 0, 0, ZoneId.of("Asia/Singapore"));
-        final long timeStepMillis = 60_000;
-        final long maxOvershootMillis = 20_000;
-        final long maxRandomDelayMillis = 5_000;
-        
-        final long maxRuntimeMillis = 35_000; 
+        final long timeStepMillis = timestepmillis;
+        final long maxOvershootMillis = maxovershootmillis;
+        final long maxRandomDelayMillis = maxrandomdelaymillis;
+        final long maxRuntimeMillis = maxruntimemillis; 
         
         final RealTimeStepper stepper = ScraperUtil.createRealTimeStepper(startTimeMillis, timeStepMillis, maxOvershootMillis, maxRandomDelayMillis);
         final DateTimeFormatter dateTimeFmt = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
         
         final IntFunction<Request> pageCreateFunction = pageNo->{
-		String url = String.format("http://datamall2.mytransport.sg/ltaodataservice/Traffic-Images?$skip=%d", pageNo * 500);
-		Request req = ScraperUtil.createRequestBuilder().setUrl(url).setHeader("AccountKey", accountKey).build();
+		String url = String.format(URL, pageNo * 500);
+                Request req = ScraperUtil.createRequestBuilder().setUrl(url).setHeader("AccountKey", accountKey).build();
 		return req;
 	};
         
@@ -214,7 +227,7 @@ public class Scraper implements Daemon{
                     //System.out.println("FILEPATH: " + theMetadata.getFilePath());
                     //System.out.println("JSON: " + theMetadata.getJsonFile());
                     
-                    Messenger theMessenger = new Messenger("traffic-image",FolderName,theMetadata.getJsonFile());
+                    Messenger theMessenger = new Messenger(messagetopic,FolderName,theMetadata.getJsonFile());
                     theMessenger.send();
                     theZipper.delete(new File(DirPath));
                     System.out.println("Results processed.");
