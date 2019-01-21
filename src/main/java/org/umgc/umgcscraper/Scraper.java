@@ -25,7 +25,6 @@ import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.sql.Timestamp;
 import java.text.SimpleDateFormat;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -87,6 +86,8 @@ public class Scraper implements Daemon{
         long maxovershootmillis = (Long)jsonObject.get("maxovershootmillis");
         long maxrandomdelaymillis = (Long)jsonObject.get("maxrandomdelaymillis");
         long maxruntimemillis = (Long)jsonObject.get("maxruntimemillis");
+        String scraperid = (String)jsonObject.get("scraperid");
+        int priority = ((Long)jsonObject.get("priority")).intValue();
         String messagetopic = (String)jsonObject.get("messagetopic");
         String bootstrap = (String)jsonObject.get("bootstrap");
         
@@ -97,6 +98,8 @@ public class Scraper implements Daemon{
         System.out.println("MaxOverShootMillis  : " + maxovershootmillis);
         System.out.println("MaxRandomDelayMillis: " + maxrandomdelaymillis);
         System.out.println("MaxRunTimeMillis    : " + maxruntimemillis);
+        System.out.println("ScraperId           : " + scraperid);
+        System.out.println("Priority            : " + priority);
         System.out.println("MessageTopic        : " + messagetopic);
         System.out.println("Bootstrap Servers   : " + bootstrap);
         System.out.println("------------------------------------------------");
@@ -150,7 +153,7 @@ public class Scraper implements Daemon{
         while (true){
             try{
                     System.out.println("Waiting for next step...");
-                    stepper.nextStep(); //Sleep until the next step.
+                    long timeMillis = stepper.nextStep(); //Sleep until the next step.
                     System.out.println("Step triggered: " + dateTimeFmt.format(LocalDateTime.now()));
             
                     long deadlineMillis = stepper.calcCurrentStepMillis() + maxRuntimeMillis;
@@ -160,7 +163,7 @@ public class Scraper implements Daemon{
                     int size = pres.size(); //Total number of pages returned.
                     List<TrafficImageDocumentJson> allDocs = pres.getResponseData(); //Get all the response data in a list.
                     
-                    String DirPath = createDirectory(OutputFile);
+                    String DirPath = createDirectory(OutputFile, timeMillis);
                     //Image Path
                     String ImagePath = OutputFile + "images" + "/";
                     //System.out.println("DIRPATH : " + DirPath);
@@ -221,18 +224,14 @@ public class Scraper implements Daemon{
                         }
                         
                         
-                        writeFile(pres.getResponse(i).getResponseBody(), DirPath, i);
+                        writeFile(pres.getResponse(i).getResponseBody(), DirPath, i, timeMillis);
                         System.out.println(String.format("Page %d: %d traffic-images", pageNo, doc.getValue().size()));
                     }
                     String OutputZipFile = OutputFile+FolderName+".zip";
                     System.out.println("OutputZipFile : " + OutputZipFile);
                     Zipper theZipper = new Zipper(DirPath,OutputZipFile);
                     theZipper.zipIt();
-                    Metadata theMetadata = new Metadata(OutputZipFile);
-                    //System.out.println("ZIPTIMESTAMP: " + theMetadata.getTimeStamp());
-                    //System.out.println("ZIPMD5: " + theMetadata.getMd5Hash());
-                    //System.out.println("FILEPATH: " + theMetadata.getFilePath());
-                    //System.out.println("JSON: " + theMetadata.getJsonFile());
+                    Metadata theMetadata = new Metadata(OutputZipFile, scraperid, priority);
                     
                     Messenger theMessenger = new Messenger(messagetopic,FolderName,theMetadata.getJsonFile(), bootstrap);
                     theMessenger.send();
@@ -258,10 +257,10 @@ public class Scraper implements Daemon{
             
     } //END MAIN
 
-    private static void writeFile(String content, String OutputFile, int i) throws IOException{
-        Timestamp ts = new Timestamp(System.currentTimeMillis());
+    private static void writeFile(String content, String OutputFile, int i, long timeMillis) throws IOException{
+        //Timestamp ts = new Timestamp(System.currentTimeMillis());
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy.MM.dd.HH.mm.SS");
-        String TimeStamp = sdf.format(ts);
+        String TimeStamp = sdf.format(timeMillis);
         String FileName = OutputFile + TimeStamp + ".file" + Integer.toString(i);
         System.out.println(OutputFile);
         try (BufferedWriter bw = new BufferedWriter(new FileWriter(FileName), 16*1024)) {
@@ -269,10 +268,10 @@ public class Scraper implements Daemon{
         }
     }
     
-    private static String createDirectory(String OutputFile) throws IOException{
-        Timestamp ts = new Timestamp(System.currentTimeMillis());
+    private static String createDirectory(String OutputFile, long timeMillis) throws IOException{
+        //Timestamp ts = new Timestamp(System.currentTimeMillis());
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy.MM.dd.HH.mm.ss");
-        String sts = sdf.format(ts);
+        String sts = sdf.format(timeMillis);
         String DirPath = OutputFile + sts + "/";
         System.out.println("DirPath: " + DirPath);
         Path path = Paths.get(DirPath);
