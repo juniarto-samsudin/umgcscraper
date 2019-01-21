@@ -67,28 +67,48 @@ public class Scraper implements Daemon{
         JSONParser parser = new JSONParser();
         Object obj = parser.parse(new FileReader("/etc/ta-scraper.conf"));
         JSONObject jsonObject = (JSONObject) obj;
-        System.out.println(jsonObject);
         
+        String URL = (String)jsonObject.get("url");
         String OutputFile = (String)jsonObject.get("outputfile");
-        System.out.println(OutputFile);
-        
         String accountKey = (String)jsonObject.get("accountkey");
+        long timestepmillis = (Long)jsonObject.get("timestepmillis");
+        long maxovershootmillis = (Long)jsonObject.get("maxovershootmillis");
+        long maxrandomdelaymillis = (Long)jsonObject.get("maxrandomdelaymillis");
+        long maxruntimemillis = (Long)jsonObject.get("maxruntimemillis");
+        String scraperid = (String)jsonObject.get("scraperid");
+        int priority = ((Long)jsonObject.get("priority")).intValue();
+        String messagetopic = (String)jsonObject.get("messagetopic");
+        String bootstrap = (String)jsonObject.get("bootstrap");
+        
+        System.out.println("-----------------------------------------------");
+        System.out.println("URL                 : " + URL); 
+        System.out.println("Output Directory    : " + OutputFile);
+        System.out.println("TimeStepMillis      : " + timestepmillis);
+        System.out.println("MaxOverShootMillis  : " + maxovershootmillis);
+        System.out.println("MaxRandomDelayMillis: " + maxrandomdelaymillis);
+        System.out.println("MaxRunTimeMillis    : " + maxruntimemillis);
+        System.out.println("ScraperId           : " + scraperid);
+        System.out.println("Priority            : " + priority);
+        System.out.println("MessageTopic        : " + messagetopic);
+        System.out.println("Bootstrap Servers   : " + bootstrap);
+        System.out.println("------------------------------------------------");
+        
         
         final ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(1);
         ScraperClient client = ScraperUtil.createScraperClient(8, 250);
         
         final long startTimeMillis = ScraperUtil.convertToTimeMillis(2018, 1, 1, 0, 0, 0, ZoneId.of("Asia/Singapore"));
-        final long timeStepMillis = 60_000;
-        final long maxOvershootMillis = 20_000;
-        final long maxRandomDelayMillis = 5_000;
+        final long timeStepMillis = timestepmillis;
+        final long maxOvershootMillis = maxovershootmillis;
+        final long maxRandomDelayMillis = maxrandomdelaymillis;
         
-        final long maxRuntimeMillis = 35_000; 
+        final long maxRuntimeMillis = maxruntimemillis; 
         
         final RealTimeStepper stepper = ScraperUtil.createRealTimeStepper(startTimeMillis, timeStepMillis, maxOvershootMillis, maxRandomDelayMillis);
         final DateTimeFormatter dateTimeFmt = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
         
         final IntFunction<Request> pageCreateFunction = pageNo->{
-		String url = String.format("http://datamall2.mytransport.sg/ltaodataservice/Taxi-Availability?$skip=%d", pageNo * 500);
+		String url = String.format(URL, pageNo * 500);
 		Request req = ScraperUtil.createRequestBuilder().setUrl(url).setHeader("AccountKey", accountKey).build();
 		return req;
 	};
@@ -145,13 +165,9 @@ public class Scraper implements Daemon{
                     System.out.println("OutputZipFile : " + OutputZipFile);
                     Zipper theZipper = new Zipper(DirPath,OutputZipFile);
                     theZipper.zipIt();
-                    Metadata theMetadata = new Metadata(OutputZipFile);
-                    //System.out.println("ZIPTIMESTAMP: " + theMetadata.getTimeStamp());
-                    //System.out.println("ZIPMD5: " + theMetadata.getMd5Hash());
-                    //System.out.println("FILEPATH: " + theMetadata.getFilePath());
-                    //System.out.println("JSON: " + theMetadata.getJsonFile());
+                    Metadata theMetadata = new Metadata(OutputZipFile, scraperid, priority);
                     
-                    Messenger theMessenger = new Messenger("taxi-availability",FolderName,theMetadata.getJsonFile());
+                    Messenger theMessenger = new Messenger(messagetopic,FolderName,theMetadata.getJsonFile());
                     theMessenger.send();
                     theZipper.delete(new File(DirPath));
                     System.out.println("Results processed.");

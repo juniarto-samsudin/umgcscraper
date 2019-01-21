@@ -19,26 +19,46 @@ import org.json.simple.JSONObject;
 public class Metadata {
     
     private final String OutputZipFile;
+    private final String ScraperId;
+    private final int Priority;
     
-    Metadata(String OutputZipFile){
+    Metadata(String OutputZipFile, String ScraperId, int Priority){
         this.OutputZipFile = OutputZipFile;
+        this.ScraperId = ScraperId;
+        this.Priority = Priority;
     }
     
     //File Size
-    public double getFileSizeInKb(){
+    public double getFileSize(){
         File file = new File(OutputZipFile);
         double bytes = file.length();
-        return bytes / 1024;
+        return bytes;
     }
     
     //File Path
     public String getFilePath(){
         return OutputZipFile;
     }
-    
+    //File Name
+    public String getFileName() {
+	int ix = OutputZipFile.lastIndexOf('/');
+	if (ix == -1) return OutputZipFile;
+	return OutputZipFile.substring(ix+1);
+    }
+
+    //File Dir
+    public String getFileDir() {
+	int ix = OutputZipFile.lastIndexOf('/');
+	if (ix == -1) return "/";
+	return OutputZipFile.substring(0, ix+1);
+    }
     //Scraper ID
-    public int getScraperId(){
-        return 1;
+    public String getScraperId(){
+        return ScraperId;
+    }
+    
+    public int getPriority(){
+        return Priority;
     }
     
     //TimeStamp
@@ -51,9 +71,9 @@ public class Metadata {
     }
     
     //Hash
-    public String getMd5Hash() throws FileNotFoundException, IOException{
+    public String getSha256Hex() throws FileNotFoundException, IOException{
         FileInputStream theinputstream = new FileInputStream(OutputZipFile);
-        String md5Hex = DigestUtils.md5Hex(theinputstream);
+        String md5Hex = DigestUtils.sha256Hex(theinputstream);
         return md5Hex;
     }
     
@@ -63,8 +83,10 @@ public class Metadata {
         obj.put("scraper_id",getScraperId());
         obj.put("request_timestamp",getTimeStamp());
         obj.put("file_path",getFilePath());
-        obj.put("file_hash",getMd5Hash());
-        obj.put("file_length",getFileSizeInKb());
+        obj.put("file_dir",getFileDir());
+        obj.put("file_name",getFileName());
+        obj.put("file_hash",getSha256Hex());
+        obj.put("file_length",getFileSize());
         return obj.toJSONString();
     }
 }

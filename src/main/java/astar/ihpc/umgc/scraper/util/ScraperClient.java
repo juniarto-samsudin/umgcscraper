@@ -118,7 +118,7 @@ public class ScraperClient implements AutoCloseable{
 	public ScraperClient(int maxConcurrentRequests, int throttleMillis) {
 		this.maxConcurrentRequests = maxConcurrentRequests;
 		this.throttleMillis = throttleMillis;
-		this.objectMapper = new ObjectMapper();
+		this.objectMapper = ScraperUtil.OBJECT_MAPPER;
 		int connectTimeout = Math.min(AsyncHttpClientConfigDefaults.defaultConnectTimeout(), 5000);
 		int requestTimeout = Math.min(AsyncHttpClientConfigDefaults.defaultRequestTimeout(), 10000);
 		int maxRequestRetry = 0;
