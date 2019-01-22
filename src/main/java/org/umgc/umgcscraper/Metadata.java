@@ -21,11 +21,19 @@ public class Metadata {
     private final String OutputZipFile;
     private final String ScraperId;
     private final int Priority;
+    private final String ImagePath;
     
     Metadata(String OutputZipFile, String ScraperId, int Priority){
         this.OutputZipFile = OutputZipFile;
         this.ScraperId = ScraperId;
         this.Priority = Priority;
+        this.ImagePath = "";
+    }
+    Metadata(String OutputZipFile, String ScraperId, int Priority, String ImagePath){
+        this.OutputZipFile = OutputZipFile;
+        this.ScraperId = ScraperId;
+        this.Priority = Priority;
+        this.ImagePath = ImagePath;
     }
     
     
@@ -81,6 +89,11 @@ public class Metadata {
         return md5Hex;
     }
     
+    //ImagePath
+    public String getImagePath(){
+        return ImagePath;
+    }
+    
     //JSON
     public String getJsonFile() throws IOException{
         JSONObject obj = new JSONObject();
@@ -91,6 +104,8 @@ public class Metadata {
         obj.put("file_name",getFileName());
         obj.put("file_hash",getSha256Hex());
         obj.put("file_length",getFileSize());
+        obj.put("priority",getPriority());
+        obj.put("image_path",getImagePath());
         return obj.toJSONString();
     }
 }

@@ -163,10 +163,11 @@ public class Scraper implements Daemon{
                     int size = pres.size(); //Total number of pages returned.
                     List<TrafficImageDocumentJson> allDocs = pres.getResponseData(); //Get all the response data in a list.
                     
-                    String DirPath = createDirectory(OutputFile, timeMillis);
+                    String[] PathAll = createDirectory(OutputFile, timeMillis);
                     //Image Path
-                    String ImagePath = OutputFile + "images" + "/";
-                    //System.out.println("DIRPATH : " + DirPath);
+                    String DirPath = PathAll[0];
+                    String DirPathZip = PathAll[1];
+                    String ImagePath = PathAll[2];
                     String[] temp = DirPath.split(File.separator);
                     String FolderName = temp[temp.length - 1];
                     System.out.println(FolderName);
@@ -227,11 +228,12 @@ public class Scraper implements Daemon{
                         writeFile(pres.getResponse(i).getResponseBody(), DirPath, i, timeMillis);
                         System.out.println(String.format("Page %d: %d traffic-images", pageNo, doc.getValue().size()));
                     }
-                    String OutputZipFile = OutputFile+FolderName+".zip";
+                    //String OutputZipFile = OutputFile+FolderName+".zip";
+                    String OutputZipFile = DirPathZip + FolderName + ".zip";
                     System.out.println("OutputZipFile : " + OutputZipFile);
                     Zipper theZipper = new Zipper(DirPath,OutputZipFile);
                     theZipper.zipIt();
-                    Metadata theMetadata = new Metadata(OutputZipFile, scraperid, priority);
+                    Metadata theMetadata = new Metadata(OutputZipFile, scraperid, priority, ImagePath);
                     
                     Messenger theMessenger = new Messenger(messagetopic,FolderName,theMetadata.getJsonFile(), bootstrap);
                     theMessenger.send();
@@ -268,11 +270,19 @@ public class Scraper implements Daemon{
         }
     }
     
-    private static String createDirectory(String OutputFile, long timeMillis) throws IOException{
-        //Timestamp ts = new Timestamp(System.currentTimeMillis());
+    private static String[] createDirectory(String OutputFile, long timeMillis) throws IOException{
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy.MM.dd.HH.mm.ss");
         String sts = sdf.format(timeMillis);
-        String DirPath = OutputFile + sts + "/";
+        
+        TimeProcessor tp = new TimeProcessor(sts);
+        String DirPath = OutputFile + tp.getYear() + "/" +
+                                      tp.getMonth()+ "/" +
+                                      tp.getDate() + "/" +
+                                      sts + "/";
+        String DirPathZip = OutputFile + tp.getYear() + "/" +
+                                      tp.getMonth()+ "/" +
+                                      tp.getDate() + "/";
+       
         System.out.println("DirPath: " + DirPath);
         Path path = Paths.get(DirPath);
         Files.createDirectories(path);
@@ -282,7 +292,8 @@ public class Scraper implements Daemon{
         if(!Files.exists(imagepath)){
             Files.createDirectories(imagepath);
         }
-        return DirPath;
+        String[] PathAll = {DirPath, DirPathZip, ImagePath};
+        return PathAll;
     }
     
     private static void awsImageDownload(String OutputFile, String AwsUrl) throws IOException{
@@ -357,4 +368,29 @@ class HeartBeat implements Runnable{
             }
         }
     }    
+}
+
+class TimeProcessor{
+    private final String Year;
+    private final String Month;
+    private final String Date;
+    //example: yyyy.MM.dd.HH.mm.ss
+    TimeProcessor(String stringtime){
+        String[] temp = stringtime.split("\\.");
+        this.Year = temp[0];
+        this.Month = temp[1];
+        this.Date = temp[2];
+    }
+    
+    public String getYear(){
+        return Year;
+    }
+    
+    public String getMonth(){
+        return Month;
+    }
+    
+    public String getDate(){
+        return Date;
+    }
 }
