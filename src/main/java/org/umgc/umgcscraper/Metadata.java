@@ -87,6 +87,7 @@ public class Metadata {
         obj.put("file_name",getFileName());
         obj.put("file_hash",getSha256Hex());
         obj.put("file_length",getFileSize());
+        obj.put("priority",getPriority());
         return obj.toJSONString();
     }
 }
