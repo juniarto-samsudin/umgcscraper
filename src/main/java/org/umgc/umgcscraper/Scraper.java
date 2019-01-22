@@ -113,17 +113,17 @@ public class Scraper implements Daemon{
 		return req;
 	};
         
-        final Function<Request, CompletableFuture<ScraperResult<TaxiAvailabilityDocumentJson>>> pageRequestFunction = req -> {
-		return client.requestJson(req, TaxiAvailabilityDocumentJson.class);
+        final Function<Request, CompletableFuture<ScraperResult<BlackBoxLtaDataMallDocumentJson>>> pageRequestFunction = req -> {
+		return client.requestJson(req, BlackBoxLtaDataMallDocumentJson.class);
 	};
         
         final int batchSize = client.getMaxConcurrentRequests() * 2;
         
-        final Predicate<ScraperResult<TaxiAvailabilityDocumentJson>> lastPageTest = (res)->res.getResponseData().getValue().size() < 500;
+        final Predicate<ScraperResult<BlackBoxLtaDataMallDocumentJson>> lastPageTest = (res)->res.getResponseData().getValue().size() < 500;
         
-        final Predicate<ScraperResult<TaxiAvailabilityDocumentJson>> emptyPageTest = (res)->res.getResponseData().getValue().isEmpty();
+        final Predicate<ScraperResult<BlackBoxLtaDataMallDocumentJson>> emptyPageTest = (res)->res.getResponseData().getValue().isEmpty();
         
-        final Predicate<ScraperResult<TaxiAvailabilityDocumentJson>> goodResultTest = (res)->true;
+        final Predicate<ScraperResult<BlackBoxLtaDataMallDocumentJson>> goodResultTest = (res)->true;
         
         final BiPredicate<Request, Throwable> retryOnErrorTest = (req, t)->true;
         
@@ -132,7 +132,7 @@ public class Scraper implements Daemon{
         final int retryMinDelayMillis = 1000;
         final int retryMaxDelayMillis = 3000;
         
-        final PaginationRequest<TaxiAvailabilityDocumentJson> preq = new PaginationRequest<>(
+        final PaginationRequest<BlackBoxLtaDataMallDocumentJson> preq = new PaginationRequest<>(
 		pageCreateFunction, pageRequestFunction, scheduler, batchSize, 
 		lastPageTest, emptyPageTest, goodResultTest, retryOnErrorTest, maxRetries, retryMinDelayMillis, retryMaxDelayMillis
 	);
@@ -140,34 +140,36 @@ public class Scraper implements Daemon{
         while (true){
             try{
                     System.out.println("Waiting for next step...");
-                    stepper.nextStep(); //Sleep until the next step.
+                    long timeMillis = stepper.nextStep(); //Sleep until the next step.
                     System.out.println("Step triggered: " + dateTimeFmt.format(LocalDateTime.now()));
             
                     long deadlineMillis = stepper.calcCurrentStepMillis() + maxRuntimeMillis;
                     
-                    CompletableFuture<PaginationResult<TaxiAvailabilityDocumentJson>> future = preq.requestPages(deadlineMillis);
-                    PaginationResult<TaxiAvailabilityDocumentJson> pres = future.join();
+                    CompletableFuture<PaginationResult<BlackBoxLtaDataMallDocumentJson>> future = preq.requestPages(deadlineMillis);
+                    PaginationResult<BlackBoxLtaDataMallDocumentJson> pres = future.join();
                     int size = pres.size(); //Total number of pages returned.
-                    List<TaxiAvailabilityDocumentJson> allDocs = pres.getResponseData(); //Get all the response data in a list.
+                    List<BlackBoxLtaDataMallDocumentJson> allDocs = pres.getResponseData(); //Get all the response data in a list.
                     
-                    String DirPath = createDirectory(OutputFile);
-                    System.out.println("DIRPATH : " + DirPath);
+                    String[] PathAll = createDirectory(OutputFile, timeMillis);
+                    String DirPath = PathAll[0];
+                    String DirPathZip = PathAll[1];
                     String[] temp = DirPath.split(File.separator);
                     String FolderName = temp[temp.length - 1];
                     System.out.println(FolderName);
                     for (int i = 0; i < size; i++) {
 			int pageNo = pres.getPageNumber(i); //Usually pageNo==i, but sometimes you request specific pages only.
-			TaxiAvailabilityDocumentJson doc = allDocs.get(i);
-                        writeFile(pres.getResponse(i).getResponseBody(), DirPath, i);
+			BlackBoxLtaDataMallDocumentJson doc = allDocs.get(i);
+                        writeFile(pres.getResponse(i).getResponseBody(), DirPath, i, timeMillis);
 			System.out.println(String.format("Page %d: %d taxis", pageNo, doc.getValue().size()));
                     }
-                    String OutputZipFile = OutputFile+FolderName+".zip";
+                    //String OutputZipFile = OutputFile+FolderName+".zip";
+                    String OutputZipFile = DirPathZip + FolderName + ".zip";
                     System.out.println("OutputZipFile : " + OutputZipFile);
                     Zipper theZipper = new Zipper(DirPath,OutputZipFile);
                     theZipper.zipIt();
                     Metadata theMetadata = new Metadata(OutputZipFile, scraperid, priority);
                     
-                    Messenger theMessenger = new Messenger(messagetopic,FolderName,theMetadata.getJsonFile());
+                    Messenger theMessenger = new Messenger(messagetopic,FolderName,theMetadata.getJsonFile(), bootstrap);
                     theMessenger.send();
                     theZipper.delete(new File(DirPath));
                     System.out.println("Results processed.");
@@ -185,10 +187,9 @@ public class Scraper implements Daemon{
             
     } //END MAIN
 
-    private static void writeFile(String content, String OutputFile, int i) throws IOException{
-        Timestamp ts = new Timestamp(System.currentTimeMillis());
+    private static void writeFile(String content, String OutputFile, int i, long timeMillis) throws IOException{
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy.MM.dd.HH.mm.SS");
-        String TimeStamp = sdf.format(ts);
+        String TimeStamp = sdf.format(timeMillis);
         String FileName = OutputFile + TimeStamp + ".file" + Integer.toString(i);
         System.out.println(OutputFile);
         try (BufferedWriter bw = new BufferedWriter(new FileWriter(FileName), 16*1024)) {
@@ -196,15 +197,24 @@ public class Scraper implements Daemon{
         }
     }
     
-    private static String createDirectory(String OutputFile) throws IOException{
-        Timestamp ts = new Timestamp(System.currentTimeMillis());
+    private static String[] createDirectory(String OutputFile, long timeMillis) throws IOException{
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy.MM.dd.HH.mm.ss");
-        String sts = sdf.format(ts);
-        String DirPath = OutputFile + sts + "/";
+        String sts = sdf.format(timeMillis);
+        
+        TimeProcessor tp = new TimeProcessor(sts);
+        String DirPath = OutputFile + tp.getYear() + "/" +
+                                      tp.getMonth()+ "/" +
+                                      tp.getDate() + "/" +
+                                      sts + "/";
+        String DirPathZip = OutputFile + tp.getYear() + "/" +
+                                      tp.getMonth()+ "/" +
+                                      tp.getDate() + "/";
         System.out.println("DirPath: " + DirPath);
         Path path = Paths.get(DirPath);
         Files.createDirectories(path);
-        return DirPath;
+        String[] PathAll = {DirPath, DirPathZip};
+        return PathAll;
+        
     }
     
     @Override
@@ -253,4 +263,29 @@ class HeartBeat implements Runnable{
             }
         }
     }    
+}
+
+class TimeProcessor{
+    private final String Year;
+    private final String Month;
+    private final String Date;
+    //example: yyyy.MM.dd.HH.mm.ss
+    TimeProcessor(String stringtime){
+        String[] temp = stringtime.split("\\.");
+        this.Year = temp[0];
+        this.Month = temp[1];
+        this.Date = temp[2];
+    }
+    
+    public String getYear(){
+        return Year;
+    }
+    
+    public String getMonth(){
+        return Month;
+    }
+    
+    public String getDate(){
+        return Date;
+    }
 }
