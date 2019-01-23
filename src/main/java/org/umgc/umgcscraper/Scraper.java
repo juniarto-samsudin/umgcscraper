@@ -65,45 +65,64 @@ public class Scraper implements Daemon{
     public static void main(String[] args) throws IOException, ParseException, InterruptedException, ExecutionException {
         
         JSONParser parser = new JSONParser();
-        Object obj = parser.parse(new FileReader("/etc/sb-scraper.conf"));
+        Object obj = parser.parse(new FileReader("sb-scraper.conf"));
         JSONObject jsonObject = (JSONObject) obj;
-        System.out.println(jsonObject);
         
+        String URL = (String)jsonObject.get("url");
         String OutputFile = (String)jsonObject.get("outputfile");
-        System.out.println(OutputFile);
-        
         String accountKey = (String)jsonObject.get("accountkey");
+        long timestepmillis = (Long)jsonObject.get("timestepmillis");
+        long maxovershootmillis = (Long)jsonObject.get("maxovershootmillis");
+        long maxrandomdelaymillis = (Long)jsonObject.get("maxrandomdelaymillis");
+        long maxruntimemillis = (Long)jsonObject.get("maxruntimemillis");
+        String scraperid = (String)jsonObject.get("scraperid");
+        int priority = ((Long)jsonObject.get("priority")).intValue();
+        String messagetopic = (String)jsonObject.get("messagetopic");
+        String bootstrap = (String)jsonObject.get("bootstrap");
+        
+        System.out.println("-----------------------------------------------");
+        System.out.println("URL                 : " + URL); 
+        System.out.println("Output Directory    : " + OutputFile);
+        System.out.println("TimeStepMillis      : " + timestepmillis);
+        System.out.println("MaxOverShootMillis  : " + maxovershootmillis);
+        System.out.println("MaxRandomDelayMillis: " + maxrandomdelaymillis);
+        System.out.println("MaxRunTimeMillis    : " + maxruntimemillis);
+        System.out.println("ScraperId           : " + scraperid);
+        System.out.println("Priority            : " + priority);
+        System.out.println("MessageTopic        : " + messagetopic);
+        System.out.println("Bootstrap Servers   : " + bootstrap);
+        System.out.println("------------------------------------------------");
         
         final ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(1);
         ScraperClient client = ScraperUtil.createScraperClient(8, 500);
         
         final long startTimeMillis = ScraperUtil.convertToTimeMillis(2018, 1, 1, 0, 0, 0, ZoneId.of("Asia/Singapore"));
-        final long timeStepMillis = 300_000;
-        final long maxOvershootMillis = 120_000;
-        final long maxRandomDelayMillis = 5_000;
-        
-        final long maxRuntimeMillis = (4*60+30) * 1000L;
+        final long timeStepMillis = timestepmillis;
+        final long maxOvershootMillis = maxovershootmillis;
+        final long maxRandomDelayMillis = maxrandomdelaymillis;
+        final long maxRuntimeMillis = maxruntimemillis;
+        //final long maxRuntimeMillis = (4*60+30) * 1000L;
         
         final RealTimeStepper stepper = ScraperUtil.createRealTimeStepper(startTimeMillis, timeStepMillis, maxOvershootMillis, maxRandomDelayMillis);
         final DateTimeFormatter dateTimeFmt = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
         
         final IntFunction<Request> pageCreateFunction = pageNo->{
-		String url = String.format("http://datamall2.mytransport.sg/ltaodataservice/TrafficSpeedBandsv2?$skip=%d", pageNo * 500);
+		String url = String.format(URL, pageNo * 500);
 		Request req = ScraperUtil.createRequestBuilder().setUrl(url).setHeader("AccountKey", accountKey).build();
 		return req;
 	};
         
-        final Function<Request, CompletableFuture<ScraperResult<SpeedBandDocumentJson>>> pageRequestFunction = req -> {
-		return client.requestJson(req, SpeedBandDocumentJson.class);
+        final Function<Request, CompletableFuture<ScraperResult<BlackBoxLtaDataMallDocumentJson>>> pageRequestFunction = req -> {
+		return client.requestJson(req, BlackBoxLtaDataMallDocumentJson.class);
 	};
         
         final int batchSize = client.getMaxConcurrentRequests() * 2;
         
-        final Predicate<ScraperResult<SpeedBandDocumentJson>> lastPageTest = (res)->res.getResponseData().getValue().size() < 500;
+        final Predicate<ScraperResult<BlackBoxLtaDataMallDocumentJson>> lastPageTest = (res)->res.getResponseData().getValue().size() < 500;
         
-        final Predicate<ScraperResult<SpeedBandDocumentJson>> emptyPageTest = (res)->res.getResponseData().getValue().isEmpty();
+        final Predicate<ScraperResult<BlackBoxLtaDataMallDocumentJson>> emptyPageTest = (res)->res.getResponseData().getValue().isEmpty();
         
-        final Predicate<ScraperResult<SpeedBandDocumentJson>> goodResultTest = (res)->true;
+        final Predicate<ScraperResult<BlackBoxLtaDataMallDocumentJson>> goodResultTest = (res)->true;
         
         final BiPredicate<Request, Throwable> retryOnErrorTest = (req, t)->true;
         
@@ -112,7 +131,7 @@ public class Scraper implements Daemon{
         final int retryMinDelayMillis = 1000;
         final int retryMaxDelayMillis = 3000;
         
-        final PaginationRequest<SpeedBandDocumentJson> preq = new PaginationRequest<>(
+        final PaginationRequest<BlackBoxLtaDataMallDocumentJson> preq = new PaginationRequest<>(
 		pageCreateFunction, pageRequestFunction, scheduler, batchSize, 
 		lastPageTest, emptyPageTest, goodResultTest, retryOnErrorTest, maxRetries, retryMinDelayMillis, retryMaxDelayMillis
 	);
@@ -120,28 +139,30 @@ public class Scraper implements Daemon{
         while (true){
             try{
                     System.out.println("Waiting for next step...");
-                    stepper.nextStep(); //Sleep until the next step.
+                    long timeMillis = stepper.nextStep(); //Sleep until the next step.
                     System.out.println("Step triggered: " + dateTimeFmt.format(LocalDateTime.now()));
             
                     long deadlineMillis = stepper.calcCurrentStepMillis() + maxRuntimeMillis;
                     
-                    CompletableFuture<PaginationResult<SpeedBandDocumentJson>> future = preq.requestPages(deadlineMillis);
-                    PaginationResult<SpeedBandDocumentJson> pres = future.join();
+                    CompletableFuture<PaginationResult<BlackBoxLtaDataMallDocumentJson>> future = preq.requestPages(deadlineMillis);
+                    PaginationResult<BlackBoxLtaDataMallDocumentJson> pres = future.join();
                     int size = pres.size(); //Total number of pages returned.
-                    List<SpeedBandDocumentJson> allDocs = pres.getResponseData(); //Get all the response data in a list.
+                    List<BlackBoxLtaDataMallDocumentJson> allDocs = pres.getResponseData(); //Get all the response data in a list.
                     
-                    String DirPath = createDirectory(OutputFile);
-                    System.out.println("DIRPATH : " + DirPath);
+                    String[] PathAll = createDirectory(OutputFile, timeMillis);
+                    String DirPath = PathAll[0];
+                    String DirPathZip = PathAll[1];
                     String[] temp = DirPath.split(File.separator);
                     String FolderName = temp[temp.length - 1];
                     System.out.println(FolderName);
                     for (int i = 0; i < size; i++) {
 			int pageNo = pres.getPageNumber(i); //Usually pageNo==i, but sometimes you request specific pages only.
-			SpeedBandDocumentJson doc = allDocs.get(i);
-                        writeFile(pres.getResponse(i).getResponseBody(), DirPath, i);
+			BlackBoxLtaDataMallDocumentJson doc = allDocs.get(i);
+                        writeFile(pres.getResponse(i).getResponseBody(), DirPath, i, timeMillis);
 			System.out.println(String.format("Page %d: %d speed-band", pageNo, doc.getValue().size()));
                     }
-                    String OutputZipFile = OutputFile+FolderName+".zip";
+                    //String OutputZipFile = OutputFile+FolderName+".zip";
+                    String OutputZipFile = DirPathZip + FolderName + ".zip";
                     System.out.println("OutputZipFile : " + OutputZipFile);
                     Zipper theZipper = new Zipper(DirPath,OutputZipFile);
                     theZipper.zipIt();
@@ -169,10 +190,9 @@ public class Scraper implements Daemon{
             
     } //END MAIN
 
-    private static void writeFile(String content, String OutputFile, int i) throws IOException{
-        Timestamp ts = new Timestamp(System.currentTimeMillis());
+    private static void writeFile(String content, String OutputFile, int i, long timeMillis) throws IOException{
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy.MM.dd.HH.mm.SS");
-        String TimeStamp = sdf.format(ts);
+        String TimeStamp = sdf.format(timeMillis);
         String FileName = OutputFile + TimeStamp + ".file" + Integer.toString(i);
         System.out.println(OutputFile);
         try (BufferedWriter bw = new BufferedWriter(new FileWriter(FileName), 16*1024)) {
@@ -180,15 +200,23 @@ public class Scraper implements Daemon{
         }
     }
     
-    private static String createDirectory(String OutputFile) throws IOException{
-        Timestamp ts = new Timestamp(System.currentTimeMillis());
+    private static String[] createDirectory(String OutputFile, long timeMillis) throws IOException{
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy.MM.dd.HH.mm.ss");
-        String sts = sdf.format(ts);
-        String DirPath = OutputFile + sts + "/";
+        String sts = sdf.format(timeMillis);
+        
+        TimeProcessor tp = new TimeProcessor(sts);
+        String DirPath = OutputFile + tp.getYear() + "/" +
+                                      tp.getMonth()+ "/" +
+                                      tp.getDate() + "/" +
+                                      sts + "/";
+        String DirPathZip = OutputFile + tp.getYear() + "/" +
+                                      tp.getMonth()+ "/" +
+                                      tp.getDate() + "/";
         System.out.println("DirPath: " + DirPath);
         Path path = Paths.get(DirPath);
         Files.createDirectories(path);
-        return DirPath;
+        String[] PathAll = {DirPath, DirPathZip};
+        return PathAll;
     }
     
     @Override
@@ -212,6 +240,31 @@ public class Scraper implements Daemon{
         System.out.println("Done.");
     }
     
+}
+
+class TimeProcessor{
+    private final String Year;
+    private final String Month;
+    private final String Date;
+    //example: yyyy.MM.dd.HH.mm.ss
+    TimeProcessor(String stringtime){
+        String[] temp = stringtime.split("\\.");
+        this.Year = temp[0];
+        this.Month = temp[1];
+        this.Date = temp[2];
+    }
+    
+    public String getYear(){
+        return Year;
+    }
+    
+    public String getMonth(){
+        return Month;
+    }
+    
+    public String getDate(){
+        return Date;
+    }
 }
 
 class HeartBeat implements Runnable{
