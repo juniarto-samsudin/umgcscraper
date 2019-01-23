@@ -65,7 +65,7 @@ public class Scraper implements Daemon{
     public static void main(String[] args) throws IOException, ParseException, InterruptedException, ExecutionException {
         
         JSONParser parser = new JSONParser();
-        Object obj = parser.parse(new FileReader("sb-scraper.conf"));
+        Object obj = parser.parse(new FileReader("/etc/sb-scraper.conf"));
         JSONObject jsonObject = (JSONObject) obj;
         
         String URL = (String)jsonObject.get("url");
@@ -166,13 +166,9 @@ public class Scraper implements Daemon{
                     System.out.println("OutputZipFile : " + OutputZipFile);
                     Zipper theZipper = new Zipper(DirPath,OutputZipFile);
                     theZipper.zipIt();
-                    Metadata theMetadata = new Metadata(OutputZipFile);
-                    //System.out.println("ZIPTIMESTAMP: " + theMetadata.getTimeStamp());
-                    //System.out.println("ZIPMD5: " + theMetadata.getMd5Hash());
-                    //System.out.println("FILEPATH: " + theMetadata.getFilePath());
-                    //System.out.println("JSON: " + theMetadata.getJsonFile());
+                    Metadata theMetadata = new Metadata(OutputZipFile, scraperid, priority);
                     
-                    Messenger theMessenger = new Messenger("speed-band",FolderName,theMetadata.getJsonFile());
+                    Messenger theMessenger = new Messenger(messagetopic,FolderName,theMetadata.getJsonFile(),bootstrap);
                     theMessenger.send();
                     theZipper.delete(new File(DirPath));
                     System.out.println("Results processed.");
