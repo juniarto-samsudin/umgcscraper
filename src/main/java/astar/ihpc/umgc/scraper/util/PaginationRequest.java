@@ -2,11 +2,9 @@ package astar.ihpc.umgc.scraper.util;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
@@ -21,6 +19,10 @@ import java.util.function.IntFunction;
 import java.util.function.Predicate;
 
 import org.asynchttpclient.Request;
+
+import it.unimi.dsi.fastutil.ints.Int2ObjectLinkedOpenHashMap;
+import it.unimi.dsi.fastutil.ints.Int2ObjectRBTreeMap;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
 
 /**
  * A PaginationRequest that encapsulates a multiple-page request.
@@ -124,7 +126,7 @@ public class PaginationRequest<T> {
 	private CompletableFuture<PaginationResult<T>> requestPages(final long deadlineMillis, List<Integer> initialPages, final boolean requestNextPages){
 		final long createTimeMillis = System.currentTimeMillis();
 		final long effectiveDeadlineMillis = deadlineMillis <= 0 ? Long.MAX_VALUE : deadlineMillis;
-		final List<Integer> initialPages2 = new ArrayList<>(initialPages);
+		final List<Integer> initialPages2 = new IntArrayList(initialPages);
 		for (int i = 0; i < initialPages2.size(); i++) {
 			int v = initialPages2.get(i);
 			if (v < 0) throw new IllegalArgumentException();
@@ -138,9 +140,9 @@ public class PaginationRequest<T> {
 		class PaginationRequestWorker{
 			final PaginationRequestWorker lock = this;
 			final CompletableFuture<PaginationResult<T>> finalResult;
-			final Map<Integer, CompletableFuture<ScraperResult<T>>> futures = new TreeMap<>();
-			final Map<Integer, Request> cachedRequests = new LinkedHashMap<>();
-			final Map<Integer, Integer> retryCounts = new LinkedHashMap<>();
+			final Map<Integer, CompletableFuture<ScraperResult<T>>> futures = new Int2ObjectRBTreeMap<>();
+			final Map<Integer, Request> cachedRequests = new Int2ObjectLinkedOpenHashMap<>();
+			final Map<Integer, Integer> retryCounts = new Int2ObjectLinkedOpenHashMap<>();
 			AtomicBoolean done = new AtomicBoolean(false);
 			AtomicInteger requestCount = new AtomicInteger(0);
 			final Function<Request, CompletableFuture<ScraperResult<T>>> pageRequestFunction = req->{
@@ -322,9 +324,9 @@ public class PaginationRequest<T> {
 									if (allDone) {
 										//We reached the end!
 										//Collect all our results and set done.
-										List<ScraperResult<T>> scraperResults = new ArrayList<>();
-										List<Integer> pageNumbers = new ArrayList<>();
-										List<Integer> retryCounts2 = new ArrayList<>();
+										List<ScraperResult<T>> scraperResults = new ArrayList<>(futures.size());
+										List<Integer> pageNumbers = new IntArrayList(futures.size());
+										List<Integer> retryCounts2 = new IntArrayList(futures.size());
 										for (Entry<Integer, CompletableFuture<ScraperResult<T>>> entry : futures.entrySet()) {
 											int i = entry.getKey();
 											CompletableFuture<ScraperResult<T>> f = entry.getValue();
@@ -412,7 +414,7 @@ public class PaginationRequest<T> {
 	}
 	
 	public CompletableFuture<PaginationResult<T>> requestPages(final long deadlineMillis){
-		List<Integer> initialPages = new ArrayList<>(batchSize);
+		List<Integer> initialPages = new IntArrayList(batchSize);
 		for (int i = 0; i < batchSize; i++) {
 			initialPages.add(i);
 		}
@@ -420,7 +422,7 @@ public class PaginationRequest<T> {
 	}
 	
 	public CompletableFuture<PaginationResult<T>> requestSelectedPages(final long deadlineMillis, final List<Integer> pageNumbers){
-		return requestPages(deadlineMillis, new ArrayList<Integer>(pageNumbers), false);
+		return requestPages(deadlineMillis, new IntArrayList(pageNumbers), false);
 	}
 	
 

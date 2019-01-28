@@ -1,6 +1,5 @@
-package org.umgc.umgcscraper;
+package astar.ihpc.umgc.scraper.sources.ltadatamall;
 
-import astar.ihpc.umgc.scraper.sources.ltadatamall.*;
 import java.io.IOException;
 import java.util.AbstractList;
 import java.util.LinkedHashMap;
