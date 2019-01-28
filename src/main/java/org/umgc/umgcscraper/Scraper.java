@@ -124,7 +124,7 @@ public class Scraper implements Daemon{
         
         final Predicate<ScraperResult<BlackBoxLtaDataMallDocumentJson>> goodResultTest = (res)->true;
         
-        final BiPredicate<Request, Throwable> retryOnErrorTest = (req, t)->true;
+        final BiPredicate<Request, Throwable> retryOnErrorTest = (req, t)->false;
         
         final int maxRetries = 3;
         
@@ -142,7 +142,7 @@ public class Scraper implements Daemon{
                     long timeMillis = stepper.nextStep(); //Sleep until the next step.
                     System.out.println("Step triggered: " + dateTimeFmt.format(LocalDateTime.now()));
             
-                    long deadlineMillis = stepper.calcCurrentStepMillis() + maxRuntimeMillis;
+                    long deadlineMillis = timeMillis + maxRuntimeMillis;
                     
                     CompletableFuture<PaginationResult<BlackBoxLtaDataMallDocumentJson>> future = preq.requestPages(deadlineMillis);
                     PaginationResult<BlackBoxLtaDataMallDocumentJson> pres = future.join();

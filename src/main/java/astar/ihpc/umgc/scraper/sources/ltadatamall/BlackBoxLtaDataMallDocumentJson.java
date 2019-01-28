@@ -1,4 +1,4 @@
-package org.umgc.umgcscraper;
+package astar.ihpc.umgc.scraper.sources.ltadatamall;
 
 import java.io.IOException;
 import java.util.AbstractList;
