@@ -70,29 +70,48 @@ public class Scraper implements Daemon{
         JSONParser parser = new JSONParser();
         Object obj = parser.parse(new FileReader("/etc/train-service-scraper.conf"));
         JSONObject jsonObject = (JSONObject) obj;
-        System.out.println(jsonObject);
         
+         String URL = (String)jsonObject.get("url");
         String OutputFile = (String)jsonObject.get("outputfile");
-        System.out.println(OutputFile);
-        
         String accountKey = (String)jsonObject.get("accountkey");
+        long timestepmillis = (Long)jsonObject.get("timestepmillis");
+        long maxovershootmillis = (Long)jsonObject.get("maxovershootmillis");
+        long maxrandomdelaymillis = (Long)jsonObject.get("maxrandomdelaymillis");
+        long maxruntimemillis = (Long)jsonObject.get("maxruntimemillis");
+        String scraperid = (String)jsonObject.get("scraperid");
+        int priority = ((Long)jsonObject.get("priority")).intValue();
+        String messagetopic = (String)jsonObject.get("messagetopic");
+        String bootstrap = (String)jsonObject.get("bootstrap");
+        
+        System.out.println("-----------------------------------------------");
+        System.out.println("URL                 : " + URL); 
+        System.out.println("Output Directory    : " + OutputFile);
+        System.out.println("TimeStepMillis      : " + timestepmillis);
+        System.out.println("MaxOverShootMillis  : " + maxovershootmillis);
+        System.out.println("MaxRandomDelayMillis: " + maxrandomdelaymillis);
+        System.out.println("MaxRunTimeMillis    : " + maxruntimemillis);
+        System.out.println("ScraperId           : " + scraperid);
+        System.out.println("Priority            : " + priority);
+        System.out.println("MessageTopic        : " + messagetopic);
+        System.out.println("Bootstrap Servers   : " + bootstrap);
+        System.out.println("------------------------------------------------");
+        
         
         final ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(1);
         ScraperClient client = ScraperUtil.createScraperClient(8, 250);
         
         final long startTimeMillis = ScraperUtil.convertToTimeMillis(2018, 1, 1, 0, 0, 0, ZoneId.of("Asia/Singapore"));
-        final long timeStepMillis = 10800_000;//EVERY 3 HOURS
-        //final long timeStepMillis = 60_000;
-        final long maxOvershootMillis = 20_000;
-        final long maxRandomDelayMillis = 5_000;
+        final long timeStepMillis = timestepmillis;//EVERY 3 HOURS
+        final long maxOvershootMillis = maxovershootmillis;
+        final long maxRandomDelayMillis = maxrandomdelaymillis;
         
-        final long maxRuntimeMillis = 35_000; 
+        final long maxRuntimeMillis = maxruntimemillis; 
         
         final RealTimeStepper stepper = ScraperUtil.createRealTimeStepper(startTimeMillis, timeStepMillis, maxOvershootMillis, maxRandomDelayMillis);
         final DateTimeFormatter dateTimeFmt = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
         
         final IntFunction<Request> pageCreateFunction = pageNo->{
-		String url = String.format("http://datamall2.mytransport.sg/ltaodataservice/TrainServiceAlerts?$skip=%d", pageNo * 500);
+		String url = String.format(URL, pageNo * 500);
 		Request req = ScraperUtil.createRequestBuilder().setUrl(url).setHeader("AccountKey", accountKey).build();
 		return req;
 	};
@@ -125,7 +144,7 @@ public class Scraper implements Daemon{
         while (true){
             try{
                     System.out.println("Waiting for next step...");
-                    stepper.nextStep(); //Sleep until the next step.
+                    long timeMillis = stepper.nextStep(); //Sleep until the next step.
                     System.out.println("Step triggered: " + dateTimeFmt.format(LocalDateTime.now()));
             
                     Map<String, String> CurState = new HashMap<>();
@@ -137,25 +156,27 @@ public class Scraper implements Daemon{
                     int size = pres.size(); //Total number of pages returned.
                     List<BlackBoxLtaDataMallDocumentJson> allDocs = pres.getResponseData(); //Get all the response data in a list.
                     
-                    String DirPath = createDirectory(OutputFile);
-                    System.out.println("DIRPATH : " + DirPath);
+                    String[] PathAll = createDirectory(OutputFile, timeMillis);
+                    String DirPath = PathAll[0];
+                    String DirPathZip = PathAll[1];
                     String[] temp = DirPath.split(File.separator);
                     String FolderName = temp[temp.length - 1];
                     System.out.println(FolderName);
                     for (int i = 0; i < size; i++) {
 			int pageNo = pres.getPageNumber(i); //Usually pageNo==i, but sometimes you request specific pages only.
-			//TaxiAvailabilityDocumentJson doc = allDocs.get(i);
-                        writeFile(pres.getResponse(i).getResponseBody(), DirPath, i, CurState);
-			//System.out.println(String.format("Page %d: %d taxis", pageNo, doc.getValue().size()));
+			//BlackBoxLtaDataMallDocumentJson doc = allDocs.get(i);
+                        writeFile(pres.getResponse(i).getResponseBody(), DirPath, i, CurState, timeMillis);
+			//System.out.println(String.format("Page %d: %d train-service", pageNo, doc.getValue().size()));
                     }
                     StateList.add(CurState);
                     
-                    String OutputZipFile = OutputFile+FolderName+".zip";
+                    //String OutputZipFile = OutputFile+FolderName+".zip";
+                    String OutputZipFile = DirPathZip + FolderName +".zip";
                     System.out.println("OutputZipFile : " + OutputZipFile);
                     if (StateList.size() == 1){  // At the beginning
                         //ALWAYS ZIP, DELETE AND SEND
                         System.out.println("AT THE BEGINNING, ALWAYS WRITE");
-                        ZipAndDelete(DirPath, OutputZipFile, FolderName);
+                        ZipAndDelete(DirPath, OutputZipFile, FolderName, scraperid, priority, bootstrap, messagetopic);
                     }else{
                         Map<String,String> map0 = StateList.get(0);
                         Map<String,String> map1 = StateList.get(1);
@@ -164,7 +185,7 @@ public class Scraper implements Daemon{
                         if (map0.size() != map1.size()){
                             System.out.println("Map Size different!!!!Write as Usual!");
                             //WRITE AS USUAL
-                            ZipAndDelete(DirPath, OutputZipFile, FolderName);
+                            ZipAndDelete(DirPath, OutputZipFile, FolderName, scraperid, priority, bootstrap, messagetopic);
                             StateList.remove(0);//REMOVE THE OLD ONE
                         }else{//IF THE SIZE OF THE MAP IS THE SAME: 
                             if (map0.equals(map1)){
@@ -175,7 +196,7 @@ public class Scraper implements Daemon{
                                 StateList.remove(1);//REMOVE THE NEW ONE, NEW ONE INVALID AND REPLACED.
                             }else{
                                 System.out.println("Both Maps are not equal!");
-                                ZipAndDelete(DirPath, OutputZipFile, FolderName);
+                                ZipAndDelete(DirPath, OutputZipFile, FolderName, scraperid, priority, bootstrap, messagetopic);
                                 StateList.remove(0);//REMOVE THE OLD ONE, OLD ONE INVALID AND REPLACED.
                             }
                         }
@@ -198,43 +219,52 @@ public class Scraper implements Daemon{
     } //END MAIN
     
     
-    private static void ZipAndDelete(String DirPath, String OutputZipFile, String FolderName) throws IOException{
+    private static void ZipAndDelete(String DirPath, String OutputZipFile, String FolderName, String ScraperId, int Priority, String Bootstrap, String MessageTopic) throws IOException{
         Zipper theZipper = new Zipper(DirPath,OutputZipFile);
         theZipper.zipIt();
-        Metadata theMetadata = new Metadata(OutputZipFile);
+        Metadata theMetadata = new Metadata(OutputZipFile, ScraperId, Priority);
         //System.out.println("ZIPTIMESTAMP: " + theMetadata.getTimeStamp());
         //System.out.println("ZIPMD5: " + theMetadata.getMd5Hash());
         //System.out.println("FILEPATH: " + theMetadata.getFilePath());
         //System.out.println("JSON: " + theMetadata.getJsonFile());
                     
-        Messenger theMessenger = new Messenger("train-service",FolderName,theMetadata.getJsonFile());
+        Messenger theMessenger = new Messenger(MessageTopic,FolderName,theMetadata.getJsonFile(), Bootstrap);
         theMessenger.send();
         theZipper.delete(new File(DirPath));
     }
 
-    private static void writeFile(String content, String OutputFile, int i, Map<String,String> CurState) throws IOException{
-        Timestamp ts = new Timestamp(System.currentTimeMillis());
+    private static void writeFile(String content, String OutputFile, int i, Map<String,String> CurState, long timeMillis) throws IOException{
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy.MM.dd.HH.mm.SS");
-        String TimeStamp = sdf.format(ts);
+        String TimeStamp = sdf.format(timeMillis);
         String FileName = OutputFile + TimeStamp + ".file" + Integer.toString(i);
         System.out.println(OutputFile);
         try (BufferedWriter bw = new BufferedWriter(new FileWriter(FileName), 16*1024)) {
             bw.write(content);
         }
-        Metadata filemetadata = new Metadata(FileName);
+        Metadata filemetadata = new Metadata(FileName, "0", 0);
         String key = "file" + Integer.toString(i);
-        CurState.put(key, filemetadata.getMd5Hash() );
+        CurState.put(key, filemetadata.getSha256Hex());
     }
     
-    private static String createDirectory(String OutputFile) throws IOException{
-        Timestamp ts = new Timestamp(System.currentTimeMillis());
+    
+    private static String[] createDirectory(String OutputFile, long timeMillis) throws IOException{
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy.MM.dd.HH.mm.ss");
-        String sts = sdf.format(ts);
-        String DirPath = OutputFile + sts + "/";
+        String sts = sdf.format(timeMillis);
+        
+        TimeProcessor tp = new TimeProcessor(sts);
+        String DirPath = OutputFile + tp.getYear() + "/" +
+                                      tp.getMonth()+ "/" +
+                                      tp.getDate() + "/" +
+                                      sts + "/";
+        String DirPathZip = OutputFile + tp.getYear() + "/" +
+                                      tp.getMonth()+ "/" +
+                                      tp.getDate() + "/";
         System.out.println("DirPath: " + DirPath);
         Path path = Paths.get(DirPath);
         Files.createDirectories(path);
-        return DirPath;
+        String[] PathAll = {DirPath, DirPathZip};
+        return PathAll;
+        
     }
     
     @Override
@@ -283,4 +313,29 @@ class HeartBeat implements Runnable{
             }
         }
     }    
+}
+
+class TimeProcessor{
+    private final String Year;
+    private final String Month;
+    private final String Date;
+    //example: yyyy.MM.dd.HH.mm.ss
+    TimeProcessor(String stringtime){
+        String[] temp = stringtime.split("\\.");
+        this.Year = temp[0];
+        this.Month = temp[1];
+        this.Date = temp[2];
+    }
+    
+    public String getYear(){
+        return Year;
+    }
+    
+    public String getMonth(){
+        return Month;
+    }
+    
+    public String getDate(){
+        return Date;
+    }
 }
