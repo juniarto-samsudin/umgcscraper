@@ -227,7 +227,7 @@ public class Scraper implements Daemon{
         //System.out.println("FILEPATH: " + theMetadata.getFilePath());
         //System.out.println("JSON: " + theMetadata.getJsonFile());
                     
-        Messenger theMessenger = new Messenger("bus-route",FolderName,theMetadata.getJsonFile(), Bootstrap);
+        Messenger theMessenger = new Messenger(MessageTopic,FolderName,theMetadata.getJsonFile(), Bootstrap);
         theMessenger.send();
         theZipper.delete(new File(DirPath));
     }
