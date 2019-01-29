@@ -1,21 +1,30 @@
 package astar.ihpc.umgc.scraper.util;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.security.SecureRandom;
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.TimeZone;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.LockSupport;
 
+import org.apache.commons.codec.digest.DigestUtils;
 import org.asynchttpclient.AsyncHttpClient;
 import org.asynchttpclient.Request;
 import org.asynchttpclient.RequestBuilder;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
@@ -43,7 +52,33 @@ public final class ScraperUtil {
 	private ScraperUtil() {
 		
 	}
+	public static final ZoneId STANDARD_ZONE = ZoneId.of("Asia/Singapore");
+
+	/**
+	 * A standard formatter. DateTimeFormatter is the new Java 8 formatter class, and is incompatible with the older DateFormat class.
+	 */
+	public static final DateTimeFormatter STANDARD_DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy.MM.dd.HH.mm.ss").withZone(STANDARD_ZONE);
+	/**
+	 * A standard format. DateFormat is the older Java formatter class, and is incompatible with the new Java 8 date time API.
+	 */
+	public static final DateFormat STANDARD_DATE_FORMAT = new SimpleDateFormat("yyyy.MM.dd.HH.mm.ss");
+	static {
+		STANDARD_DATE_FORMAT.setTimeZone(TimeZone.getTimeZone(STANDARD_ZONE));
+	}
 	
+	
+	/**
+	 * An object mapper with sensible default configurations. AS THIS INSTANCE IS SHARED GLOBALLY, DO NOT CHANGE ITS CONFIGURATION.
+	 */
+	public static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+	static {
+		OBJECT_MAPPER.setDateFormat(STANDARD_DATE_FORMAT);
+	}
+	
+	/**
+	 * A secure random number generator. Thread-safe and can be shared. Sequences are inherently unpredictable.
+	 */
+	public static final SecureRandom SECURE_RANDOM = new SecureRandom();
 	private final static boolean initHiResSleep() {
 		Thread hiresSleepThread = new Thread(new Runnable() {
 			
@@ -255,7 +290,7 @@ public final class ScraperUtil {
 	}
 	
 	/**
-	 * Convert a local date time to milliseconds since epoch. The system default time zone is assumed.
+	 * Convert a local date time to milliseconds since epoch. The Singapore time zone is assumed.
 	 * Useful to generate the startTimeMillis parameter in {@link RealTimeStepper}.
 	 * @param year
 	 * @param month
@@ -266,7 +301,7 @@ public final class ScraperUtil {
 	 * @return
 	 */
 	public static long convertToTimeMillis(int year, int month, int dayOfMonth, int hour, int minute, int second) {
-		return LocalDateTime.of(year, month, dayOfMonth, hour, minute, second, 0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
+		return LocalDateTime.of(year, month, dayOfMonth, hour, minute, second, 0).atZone(STANDARD_ZONE).toInstant().toEpochMilli();
 	}
 	
 	/**
@@ -370,5 +405,189 @@ public final class ScraperUtil {
 		return new RequestBuilder();
 	}
 	
+	private static char[] NONCE_CHARS = {'a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v','w','x','y','z','0','1','2','3','4','5','6','7','8','9'};
+	private static boolean[] STANDARD_CHARS_LOOKUP = new boolean[256];
+	static {
+		for (int i = 0; i < 26; i++) {
+			STANDARD_CHARS_LOOKUP[((int)('a')) + i] = true;
+			STANDARD_CHARS_LOOKUP[((int)('A')) + i] = true;
+		}
+		for (int i = 0; i < 10; i++) {
+			STANDARD_CHARS_LOOKUP[((int)('0')) + i] = true;
+		}
+		STANDARD_CHARS_LOOKUP[(int)'-'] = true;
+		STANDARD_CHARS_LOOKUP[(int)'_'] = true;
+	}
+	
+	
+	
+		
+			
+	/**
+	 * Create a random 8 character alphabetical string that can be used to avoid collisions when generating filenames. 
+	 * <p>
+	 * The allowed characters are the 26 lowercase alphabets and 10 decimal digit characters. (Essentially base-36.) Uppercase is not allowed as Windows treats filenames as case-insensitive.
+	 * @return
+	 */
+	public static String calculateShortNonce() {
+		char[] out = new char[8];
+		for (int i = 0; i < out.length; i++) {
+			out[i] = NONCE_CHARS[SECURE_RANDOM.nextInt(NONCE_CHARS.length)];
+		}
+		return new String(out);
+	}
+	
+	/**
+	 * Create a random 16 character alphabetical string that can be used to avoid collisions when generating filenames. 
+	 * <p>
+	 * The allowed characters are the 26 lowercase alphabets and 10 decimal digit characters. (Essentially base-36.) Uppercase is not allowed as Windows treats filenames as case-insensitive.
+	 * @return
+	 */
+	public static String calculateMediumNonce() {
+		char[] out = new char[16];
+		for (int i = 0; i < out.length; i++) {
+			out[i] = NONCE_CHARS[SECURE_RANDOM.nextInt(NONCE_CHARS.length)];
+		}
+		return new String(out);
+	}
+	
+	/**
+	 * Create a random 24 character alphabetical string that can be used to avoid collisions when generating filenames. 
+	 * <p>
+	 * The allowed characters are the 26 lowercase alphabets and 10 decimal digit characters. (Essentially base-36.) Uppercase is not allowed as Windows treats filenames as case-insensitive.
+	 * @return
+	 */
+	public static String calculateLongNonce() {
+		char[] out = new char[24];
+		for (int i = 0; i < out.length; i++) {
+			out[i] = NONCE_CHARS[SECURE_RANDOM.nextInt(NONCE_CHARS.length)];
+		}
+		return new String(out);
+	}
+	
+	private static void ensureStandardChars(String s, boolean acceptEmpty) {
+		try {
+			if (!acceptEmpty && s.length() == 0) {
+				throw new IllegalArgumentException("empty string is not allowed");
+			}
+			for (int i = 0; i < s.length(); i++) {
+				char c = s.charAt(i);
+				if (!STANDARD_CHARS_LOOKUP[c]) {
+					throw new IllegalArgumentException("Invalid characters in " + s);
+				}
+			}
+		} catch (ArrayIndexOutOfBoundsException e) {
+			throw new IllegalArgumentException("Invalid characters in " + s);
+		}
+	}
+	/**
+	 * Generate a directory path appropriate for storing scraped data according to the specified parameters.
+	 * <p>
+	 * This can be combined with {@link #createStandardScraperFileName(String, String, long, String...)} to build a full filepath.
+	 * <p>
+	 * This method will standardise all our scrapers to this naming convention:
+	 * "/umgc/data/scraper/{zone}/{scraper}/{dataset}/{YYYY}/{MM}/{DD}/" (including trailing slash)
+	 * <p>
+	 * Each day is in its separate folder to ensure that directory contents are not too large. (Cannot have thousands of entries in one dir.)
+	 * <p>
+	 * Dates are formatted according to Singapore time. (Important if you're running a cloud scraper and its local timezone is not set properly to Singapore time.)
+	 * <p>
+	 * timeMillis is the time corresponding to the request. For periodic datasets fetched using RealTimeStepper, this should be the return value of {@link RealTimeStepper#nextStep()}.
+	 * For ad-hoc datasets not using RealTimeStepper, this can be the current time {@link System#currentTimeMillis()}.
+	 * <p>
+	 * All characters must belong to this range: a-Z, 0-9, hyphen, underscore. No other characters allowed. No spaces allowed.
+	 * <p>
+	 * Hyphen is preferred over underscore (the underscore is losing popularity in URLs).
+	 * @param zone identifier for the network zone running the scraper
+	 * @param scraperId identifier for the scraper. must be globally unique
+	 * @param dataset the name of the dataset
+	 * @param timeMillis the time of the request (only the date component is extracted)
+	 * @return
+	 */
+	public static String calculateStandardScraperDirName(String zone, String scraperId, String dataset, long timeMillis) {
+		ensureStandardChars(zone, false);
+		ensureStandardChars(scraperId, false);
+		ensureStandardChars(dataset, false);
+		OffsetDateTime dt = OffsetDateTime.ofInstant(Instant.ofEpochMilli(timeMillis), STANDARD_ZONE);
+		int year = dt.getYear();
+		int month = dt.getMonthValue();
+		int dayOfMonth = dt.getDayOfMonth();
+		return String.format("/umgc/data/scraper/%s/%s/%s/%04d/%02d/%02d/", zone, scraperId, dataset, year, month, dayOfMonth);
+	}
+	
+	/**
+	 * Generate a standard filename appropriate for storing scraped data according to the specified parameters.
+	 * <p>
+	 * This can be combined with {@link #calculateStandardScraperDirName(String, String, String, long)} to build a full filepath.
+	 * <p>
+	 * This method will standardise the filenames to this convention:
+	 * "YYYY.MM.DD.HH.MM.SS.SUFFIX1.SUFFIX2.EXTENSION"
+	 * It is assumed that datasets are not written faster than second precision, thus, milliseconds are not shown.
+	 * <p>
+	 * Dates are formatted according to Singapore time. (Important if you're running a cloud scraper and its local timezone is not set properly to Singapore time.)
+	 * <p>
+	 * timeMillis is the time corresponding to the request. For periodic datasets fetched using RealTimeStepper, this should be the return value of {@link RealTimeStepper#nextStep()}.
+	 * For ad-hoc datasets not using RealTimeStepper, this can be the current time {@link System#currentTimeMillis()}.
+	 * <p>
+	 * The period must not be included in the extension (it will be added automatically).
+	 * <p>
+	 * Suffixes are additional dataset-specific suffixes. If null or not included, a suffix will not be included.
+	 * <p>
+	 * All characters must belong to this range: a-Z, 0-9, hyphen, underscore. No other characters allowed. No spaces allowed.
+	 * <p>
+	 * Hyphen is preferred over underscore (the underscore is losing popularity in URLs).
+	 * @param extension the file extension (without period)
+	 * @param timeMillis the time of the request
+	 * @param suffixes optional suffixes to be generated.
+	 * @return
+	 */
+	public static String calculateStandardScraperFileName(String extension, long timeMillis, String... suffixes) {
+		ensureStandardChars(extension, false);
+		if (suffixes == null) suffixes = new String[0];
+		for (String s : suffixes) {
+			ensureStandardChars(s, false);
+		}
+		OffsetDateTime dt = OffsetDateTime.ofInstant(Instant.ofEpochMilli(timeMillis), STANDARD_ZONE);
+		int year = dt.getYear();
+		int month = dt.getMonthValue();
+		int dayOfMonth = dt.getDayOfMonth();
+		int hr = dt.getHour();
+		int min = dt.getMinute();
+		int sec = dt.getSecond();
+		String yrMthDayStr = String.format("%04d.%02d.%02d.%02d.%02d.%02d", year,month,dayOfMonth,hr,min,sec);
+		StringBuilder sb = new StringBuilder();
+		for (String s : suffixes) {
+			sb.append(".").append(s);
+		}
+		return yrMthDayStr + sb.toString() + "." + extension;
+	}
+	
+	
+	
+	public static String calculateHash(byte[] data) {
+		return DigestUtils.sha256Hex(data);
+	}
+	public static String calculateHash(InputStream data) throws IOException {
+		return DigestUtils.sha256Hex(data);
+	}
+	public static String calculateHash(String data) {
+		return DigestUtils.sha256Hex(data);
+	}
+	
+	public static String writeJsonToString(Object value) throws JsonProcessingException{
+		return OBJECT_MAPPER.writeValueAsString(value);
+	}
+	
+	public static String calculateFileNameFromFilePath(String filePath) {
+		int ix = filePath.lastIndexOf('/');
+		if (ix == -1) return filePath;
+		return filePath.substring(ix+1);
+	}
+	
+	public static String calculateDirNameFromFilePath(String filePath) {
+		int ix = filePath.lastIndexOf('/');
+		if (ix == -1) return "/";
+		return filePath.substring(0, ix+1);
+	}
 	
 }
