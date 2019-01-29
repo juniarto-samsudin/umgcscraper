@@ -174,7 +174,7 @@ public class Scraper implements Daemon{
                     if (StateList.size() == 1){  // At the beginning
                         //ALWAYS ZIP, DELETE AND SEND
                         System.out.println("AT THE BEGINNING, ALWAYS WRITE");
-                        ZipAndDelete(DirPath, OutputZipFile, FolderName, scraperid, priority, bootstrap);
+                        ZipAndDelete(DirPath, OutputZipFile, FolderName, scraperid, priority, bootstrap, messagetopic);
                     }else{
                         Map<String,String> map0 = StateList.get(0);
                         Map<String,String> map1 = StateList.get(1);
@@ -183,7 +183,7 @@ public class Scraper implements Daemon{
                         if (map0.size() != map1.size()){
                             System.out.println("Map Size different!!!!Write as Usual!");
                             //WRITE AS USUAL
-                            ZipAndDelete(DirPath, OutputZipFile, FolderName, scraperid, priority, bootstrap);
+                            ZipAndDelete(DirPath, OutputZipFile, FolderName, scraperid, priority, bootstrap, messagetopic);
                             StateList.remove(0);//REMOVE THE OLD ONE
                         }else{//IF THE SIZE OF THE MAP IS THE SAME: 
                             if (map0.equals(map1)){
@@ -194,7 +194,7 @@ public class Scraper implements Daemon{
                                 StateList.remove(1);//REMOVE THE NEW ONE, NEW ONE INVALID AND REPLACED.
                             }else{
                                 System.out.println("Both Maps are not equal!");
-                                ZipAndDelete(DirPath, OutputZipFile, FolderName, scraperid, priority, bootstrap);
+                                ZipAndDelete(DirPath, OutputZipFile, FolderName, scraperid, priority, bootstrap, messagetopic);
                                 StateList.remove(0);//REMOVE THE OLD ONE, OLD ONE INVALID AND REPLACED.
                             }
                         }
@@ -217,7 +217,7 @@ public class Scraper implements Daemon{
     } //END MAIN
     
     
-    private static void ZipAndDelete(String DirPath, String OutputZipFile, String FolderName, String ScraperId, int Priority, String Bootstrap) throws IOException{
+    private static void ZipAndDelete(String DirPath, String OutputZipFile, String FolderName, String ScraperId, int Priority, String Bootstrap, String MessageTopic) throws IOException{
         Zipper theZipper = new Zipper(DirPath,OutputZipFile);
         theZipper.zipIt();
         Metadata theMetadata = new Metadata(OutputZipFile, ScraperId, Priority);
@@ -226,7 +226,7 @@ public class Scraper implements Daemon{
         //System.out.println("FILEPATH: " + theMetadata.getFilePath());
         //System.out.println("JSON: " + theMetadata.getJsonFile());
                     
-        Messenger theMessenger = new Messenger("bus-service",FolderName,theMetadata.getJsonFile(), Bootstrap);
+        Messenger theMessenger = new Messenger(MessageTopic,FolderName,theMetadata.getJsonFile(), Bootstrap);
         theMessenger.send();
         theZipper.delete(new File(DirPath));
     }
