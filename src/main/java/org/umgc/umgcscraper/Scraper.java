@@ -73,24 +73,41 @@ public class Scraper implements Daemon{
         JSONParser parser = new JSONParser();
         Object obj = parser.parse(new FileReader("/etc/pvodtrain-scraper.conf"));
         JSONObject jsonObject = (JSONObject) obj;
-        System.out.println(jsonObject);
         
+         String URL = (String)jsonObject.get("url");
         String OutputFile = (String)jsonObject.get("outputfile");
-        System.out.println(OutputFile);
-        long loop = (Long)jsonObject.get("loop");
-        
         String accountKey = (String)jsonObject.get("accountkey");
+        long timestepmillis = (Long)jsonObject.get("timestepmillis");
+        long maxovershootmillis = (Long)jsonObject.get("maxovershootmillis");
+        long maxrandomdelaymillis = (Long)jsonObject.get("maxrandomdelaymillis");
+        long maxruntimemillis = (Long)jsonObject.get("maxruntimemillis");
+        String scraperid = (String)jsonObject.get("scraperid");
+        int priority = ((Long)jsonObject.get("priority")).intValue();
+        String messagetopic = (String)jsonObject.get("messagetopic");
+        String bootstrap = (String)jsonObject.get("bootstrap");
         
-        
+        System.out.println("-----------------------------------------------");
+        System.out.println("URL                 : " + URL); 
+        System.out.println("Output Directory    : " + OutputFile);
+        System.out.println("TimeStepMillis      : " + timestepmillis);
+        System.out.println("MaxOverShootMillis  : " + maxovershootmillis);
+        System.out.println("MaxRandomDelayMillis: " + maxrandomdelaymillis);
+        System.out.println("MaxRunTimeMillis    : " + maxruntimemillis);
+        System.out.println("ScraperId           : " + scraperid);
+        System.out.println("Priority            : " + priority);
+        System.out.println("MessageTopic        : " + messagetopic);
+        System.out.println("Bootstrap Servers   : " + bootstrap);
+        System.out.println("------------------------------------------------");
+         
         ScraperClient client = ScraperUtil.createScraperClient(8, 250);
         
         final long startTimeMillis = ScraperUtil.convertToTimeMillis(2018, 1, 1, 0, 0, 0, ZoneId.of("Asia/Singapore"));
         //final long timeStepMillis = 60_000;
-        final long timeStepMillis = 86_400_000;  //DAILY
-        final long maxOvershootMillis = 20_000;
-        final long maxRandomDelayMillis = 5_000;
+        final long timeStepMillis = timestepmillis;  //DAILY
+        final long maxOvershootMillis = maxovershootmillis;
+        final long maxRandomDelayMillis = maxrandomdelaymillis;
         
-        final long maxRuntimeMillis = 35_000; 
+        final long maxRuntimeMillis = maxruntimemillis; 
         
         final RealTimeStepper stepper = ScraperUtil.createRealTimeStepper(startTimeMillis, timeStepMillis, maxOvershootMillis, maxRandomDelayMillis);
         final DateTimeFormatter dateTimeFmt = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
@@ -99,12 +116,12 @@ public class Scraper implements Daemon{
         while (true){
             try{
                     System.out.println("Waiting for next step...");
-                    stepper.nextStep(); //Sleep until the next step.
+                    long timeMillis = stepper.nextStep(); //Sleep until the next step.
                     System.out.println("Step triggered: " + dateTimeFmt.format(LocalDateTime.now()));
             
                     Map<String, String> CurState = new HashMap<>();
                     
-                    String url = "http://datamall2.mytransport.sg/ltaodataservice/PV/ODTrain";
+                    String url = URL;
                     Request req = ScraperUtil.createRequestBuilder().setUrl(url).setHeader("AccountKey", accountKey).build();
                     CompletableFuture<ScraperResult<PasVolOdBusDocumentJson>> future = client.requestJson(req, PasVolOdBusDocumentJson.class);
                     ScraperResult<PasVolOdBusDocumentJson> result = future.join();
@@ -112,7 +129,7 @@ public class Scraper implements Daemon{
                     System.out.println("RESULT IS: " + content.getValue().get(0).getLink());
                     
                     
-                    String ZipFile = createZipFile(OutputFile);
+                    String ZipFile = createZipFile(OutputFile, timeMillis);
                     
                     String AwsUrl = content.getValue().get(0).getLink();
                     HttpClient AwsClient = HttpClientBuilder.create().build();
@@ -128,8 +145,8 @@ public class Scraper implements Daemon{
                     out.flush();
                     out.close();
                     
-                    Metadata theMetadata = new Metadata(ZipFile);
-                    CurState.put("file", theMetadata.getMd5Hash());
+                    Metadata theMetadata = new Metadata(ZipFile, scraperid, priority);
+                    CurState.put("file", theMetadata.getSha256Hex());
                     CurState.put("date", theMetadata.getCurDate());
                     CurState.put("month", theMetadata.getCurMonth());
                     
@@ -138,7 +155,7 @@ public class Scraper implements Daemon{
                     //ALWAYS SEND
                     if (StateList.size() == 1){
                         System.out.println("FIRST ENTRY! JUST GO AHEAD");
-                        Messenger theMessenger = new Messenger("passenger-volume-by-odtrain",OutputFile,theMetadata.getJsonFile());
+                        Messenger theMessenger = new Messenger(messagetopic,OutputFile,theMetadata.getJsonFile(),bootstrap);
                         theMessenger.send();
                         System.out.println(theMetadata.getCurDate());
                     } else if (StateList.size() > 1){
@@ -154,7 +171,7 @@ public class Scraper implements Daemon{
                                 System.out.println("Same Month!");
                                 if (date1 > 15 && date0 <=15){
                                     System.out.println("date1 > 15 and date0 <=15");
-                                    Messenger theMessenger = new Messenger("passenger-volume-by-odtrain",OutputFile,theMetadata.getJsonFile());
+                                    Messenger theMessenger = new Messenger(messagetopic,OutputFile,theMetadata.getJsonFile(),bootstrap);
                                     theMessenger.send();
                                     StateList.remove(0);
                                 }else{
@@ -167,7 +184,7 @@ public class Scraper implements Daemon{
                                 System.out.println("Different Month!");
                                 if (date1 > 15 && date0 > 15){
                                     System.out.println("date1 > 15 and date0 >15");
-                                    Messenger theMessenger = new Messenger("passenger-volume-by-odtrain",OutputFile,theMetadata.getJsonFile());
+                                    Messenger theMessenger = new Messenger(messagetopic,OutputFile,theMetadata.getJsonFile(),bootstrap);
                                     theMessenger.send();
                                     StateList.remove(0);
                                 }else{
@@ -180,7 +197,7 @@ public class Scraper implements Daemon{
                             
                             
                         }else{//MD5SUM IS DIFFERENT, SURE SEND
-                            Messenger theMessenger = new Messenger("passenger-volume-by-odtrain",OutputFile,theMetadata.getJsonFile());
+                            Messenger theMessenger = new Messenger(messagetopic,OutputFile,theMetadata.getJsonFile(),bootstrap);
                             theMessenger.send();
                             System.out.println(theMetadata.getCurDate());
                             StateList.remove(0);
@@ -269,13 +286,23 @@ public class Scraper implements Daemon{
         }
     }
     
-    private static String createZipFile(String OutputFile) throws IOException{
-        Timestamp ts = new Timestamp(System.currentTimeMillis());
+    private static String createZipFile(String OutputFile, long timeMillis) throws IOException{
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy.MM.dd.HH.mm.ss");
-        String sts = sdf.format(ts);
-        String ZipFile = OutputFile + sts + ".zip";
+        String sts = sdf.format(timeMillis);
+        TimeProcessor tp = new TimeProcessor(sts);
+        
+        String ZipFile = OutputFile + tp.getYear() + "/" +
+                                      tp.getMonth()+ "/" +
+                                      tp.getDate() + "/" +
+                                      sts + ".zip";
+        String DirPathZip = OutputFile + tp.getYear() + "/" +
+                                      tp.getMonth()+ "/" +
+                                      tp.getDate() + "/";
+        Path path = Paths.get(DirPathZip);
+        Files.createDirectories(path);
+        //String ZipFile = OutputFile + sts + ".zip";
         return ZipFile;
-    }
+    } 
     private static String createDirectory(String OutputFile) throws IOException{
         Timestamp ts = new Timestamp(System.currentTimeMillis());
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy.MM.dd.HH.mm.ss");
@@ -333,4 +360,29 @@ class HeartBeat implements Runnable{
             }
         }
     }    
+}
+
+class TimeProcessor{
+    private final String Year;
+    private final String Month;
+    private final String Date;
+    //example: yyyy.MM.dd.HH.mm.ss
+    TimeProcessor(String stringtime){
+        String[] temp = stringtime.split("\\.");
+        this.Year = temp[0];
+        this.Month = temp[1];
+        this.Date = temp[2];
+    }
+    
+    public String getYear(){
+        return Year;
+    }
+    
+    public String getMonth(){
+        return Month;
+    }
+    
+    public String getDate(){
+        return Date;
+    }
 }
