@@ -97,8 +97,10 @@ public final class RealTimeStepper {
 	}
 	/**
 	 * Sleep the current thread until the next step. This sleep is not interruptible, the only way the method returns is if it reaches the next step.
+	 * <p>
+	 * Returns the time of the new step. This is equivalent to calling {@link #calcCurrentStepMillis()} immediately after this function.
 	 */
-	public void nextStep() {
+	public long nextStep() {
 		//Assign a random delay if necessary for this step.
 		long randomDelayMillis = maxRandomDelayMillis == 0 ? 0 : (long)(Math.random() * maxRandomDelayMillis);
 		while (true) {
@@ -125,7 +127,7 @@ public final class RealTimeStepper {
 			//Are we safely within the time step?
 			if (now >= nextEffectiveStepMs && now < nextOvershootMs) {
 				//Yes, we can tick.
-				return;
+				return nextStepMs;
 			} else {
 				//Either we overshoot, or the system clock was changed (somehow).
 				//Do next step then.
