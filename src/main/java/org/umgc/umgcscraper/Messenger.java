@@ -23,9 +23,9 @@ public class Messenger {
     ProducerRecord<String, String> record;
     Producer<String, String> producer;
     
-    Messenger(String topicName, String key, String value){
+    Messenger(String topicName, String key, String value, String bootstrap){
         Properties props = new Properties();
-        props.put("bootstrap.servers", "172.20.116.17:9092,172.20.116.18:9092,172.20.116.19:9092");
+        props.put("bootstrap.servers", bootstrap);
         props.put("key.serializer","org.apache.kafka.common.serialization.StringSerializer");
         props.put("value.serializer","org.apache.kafka.common.serialization.StringSerializer");
         this.producer = new KafkaProducer<>(props);
