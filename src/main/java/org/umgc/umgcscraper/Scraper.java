@@ -74,9 +74,14 @@ public class Scraper implements Daemon{
     
     
     public static void main(String[] args) throws IOException, ParseException, InterruptedException, ExecutionException {
+        if (args.length != 1){
+            System.out.println("Configuration file path is not provided!");
+            System.out.println("Example:  /mnt/scraper.conf");
+            System.exit(0);
+        }
         
         JSONParser parser = new JSONParser();
-        Object obj = parser.parse(new FileReader("/etc/traffic-image-scraper.conf"));
+        Object obj = parser.parse(new FileReader(args[0]));
         JSONObject jsonObject = (JSONObject) obj;
         
         String URL = (String)jsonObject.get("url");
