@@ -69,9 +69,13 @@ public class Scraper implements Daemon{
     
     
     public static void main(String[] args) throws IOException, ParseException, InterruptedException, ExecutionException {
-        
+        if (args.length != 1){
+            System.out.println("Configuration file path is not provided!");
+            System.out.println("Example:  /mnt/scraper.conf");
+            System.exit(0);
+        }
         JSONParser parser = new JSONParser();
-        Object obj = parser.parse(new FileReader("/etc/pvodbus-scraper.conf"));
+        Object obj = parser.parse(new FileReader(args[0]));
         JSONObject jsonObject = (JSONObject) obj;
 
         String URL = (String)jsonObject.get("url");
@@ -113,10 +117,11 @@ public class Scraper implements Daemon{
         final DateTimeFormatter dateTimeFmt = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
         
         List<Map<String,String>> StateList = new ArrayList<>();
+        long timeMillis = 0;
         while (true){
             try{
                     System.out.println("Waiting for next step...");
-                    long timeMillis = stepper.nextStep(); //Sleep until the next step.
+                    timeMillis = stepper.nextStep(); //Sleep until the next step.
                     System.out.println("Step triggered: " + dateTimeFmt.format(LocalDateTime.now()));
             
                     Map<String, String> CurState = new HashMap<>();
@@ -264,7 +269,9 @@ public class Scraper implements Daemon{
                     System.out.println();
                     */
                 } catch (CompletionException e){
-                    System.err.println("An error was encountered with our scraper.");
+                    SimpleDateFormat sdf = new SimpleDateFormat("yyyy.MM.dd.HH.mm.ss");
+                    String sts = sdf.format(timeMillis);
+                    System.err.println(sts + " An error was encountered with our scraper.");
                     e.printStackTrace();
                 }
         }//END WHILE
