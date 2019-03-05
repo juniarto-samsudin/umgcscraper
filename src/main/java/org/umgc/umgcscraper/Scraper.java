@@ -63,6 +63,7 @@ public class Scraper implements Daemon{
     
     
     public static void main(String[] args) throws IOException, ParseException, InterruptedException, ExecutionException {
+        try{
         if (args.length != 1){
             System.out.println("Configuration file path is not provided!");
             System.out.println("Example:  /mnt/scraper.conf");
@@ -188,9 +189,13 @@ public class Scraper implements Daemon{
                     String TimeStamp = sdf.format(timeMillis);
                     System.err.println(TimeStamp + " An error was encountered with our scraper.");
                     e.printStackTrace();
+                    System.exit(1);
                 }
         }//END WHILE
-         
+        } catch (Throwable t){
+            t.printStackTrace();
+            System.exit(1);
+        } 
         //ExecutorService HeartbeatExecutor = Executors.newFixedThreadPool(1);
         //HeartbeatExecutor.submit(new HeartBeat());
         
