@@ -43,6 +43,7 @@ import org.json.simple.parser.ParseException;
 import org.apache.commons.daemon.Daemon;
 import org.apache.commons.daemon.DaemonContext;
 import org.apache.commons.daemon.DaemonInitException;
+import org.apache.commons.io.FileUtils;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerRecord;
@@ -74,6 +75,7 @@ public class Scraper implements Daemon{
         
         String URL = (String)jsonObject.get("url");
         String OutputFile = (String)jsonObject.get("outputfile");
+        String Temp = (String)jsonObject.get("temp");
         String accountKey = (String)jsonObject.get("accountkey");
         long timestepmillis = (Long)jsonObject.get("timestepmillis");
         long maxovershootmillis = (Long)jsonObject.get("maxovershootmillis");
@@ -87,6 +89,7 @@ public class Scraper implements Daemon{
         System.out.println("-----------------------------------------------");
         System.out.println("URL                 : " + URL); 
         System.out.println("Output Directory    : " + OutputFile);
+        System.out.println("Temp Directory      : " + Temp);
         System.out.println("TimeStepMillis      : " + timestepmillis);
         System.out.println("MaxOverShootMillis  : " + maxovershootmillis);
         System.out.println("MaxRandomDelayMillis: " + maxrandomdelaymillis);
@@ -98,6 +101,7 @@ public class Scraper implements Daemon{
         System.out.println("------------------------------------------------");
         
         
+        FileUtils.deleteDirectory(new File(Temp));
         final ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(1);
         ScraperClient client = ScraperUtil.createScraperClient(8, 250);
         
@@ -154,28 +158,47 @@ public class Scraper implements Daemon{
                     int size = pres.size(); //Total number of pages returned.
                     List<BlackBoxLtaDataMallDocumentJson> allDocs = pres.getResponseData(); //Get all the response data in a list.
                     
-                    String[] PathAll = createDirectory(OutputFile, timeMillis);
-                    String DirPath = PathAll[0];
+                    String[] PathAll = createDirectory(OutputFile, timeMillis, Temp);
+                    String TempPath = PathAll[0];
                     String DirPathZip = PathAll[1];
-                    String[] temp = DirPath.split(File.separator);
+                    String TempPathOnly = PathAll[2];
+                    String[] temp = TempPath.split(File.separator);
                     String FolderName = temp[temp.length - 1];
                     System.out.println(FolderName);
                     for (int i = 0; i < size; i++) {
 			int pageNo = pres.getPageNumber(i); //Usually pageNo==i, but sometimes you request specific pages only.
 			BlackBoxLtaDataMallDocumentJson doc = allDocs.get(i);
-                        writeFile(pres.getResponse(i).getResponseBody(), DirPath, i, timeMillis);
+                        writeFile(pres.getResponse(i).getResponseBody(), TempPath, i, timeMillis);
 			System.out.println(String.format("Page %d: %d taxis", pageNo, doc.getValue().size()));
                     }
                     //String OutputZipFile = OutputFile+FolderName+".zip";
+                    //REAL ZIPFILE in S3
                     String OutputZipFile = DirPathZip + FolderName + ".zip";
                     System.out.println("OutputZipFile : " + OutputZipFile);
-                    Zipper theZipper = new Zipper(DirPath,OutputZipFile);
-                    theZipper.zipIt();
+                    //TEMPORARY ZIPFILE 
+                    String OutputZipFileTemp = TempPathOnly + FolderName + ".zip";
+                    System.out.println("OutputZipFileTemp");
+                    //ZIP TO TEMPFOLDER
+                    Zipper tempZipper = new Zipper(TempPath,OutputZipFileTemp);
+                    tempZipper.zipIt();
+                    //Move to S3
+                    FileUtils.copyFile(new File(OutputZipFileTemp),new File(OutputZipFile));
+                    
+                    //Zipper theZipper = new Zipper(TempPath,OutputZipFile);
+                    //theZipper.zipIt();
                     Metadata theMetadata = new Metadata(OutputZipFile, scraperid, priority);
                     
                     Messenger theMessenger = new Messenger(messagetopic,FolderName,theMetadata.getJsonFile(), bootstrap);
                     theMessenger.send();
-                    theZipper.delete(new File(DirPath));
+                    /*
+                    System.out.println("DELETE TempPath: " + TempPath);
+                    System.out.println("DELETE TempPathOnly: " + TempPathOnly);
+                    System.out.println("DELETE OutputZipFileTemp: " + OutputZipFileTemp);
+                    tempZipper.delete(new File(OutputZipFileTemp));
+                    tempZipper.delete(new File(TempPath));
+                    tempZipper.delete(new File(TempPathOnly));
+                    */
+                    FileUtils.deleteDirectory(new File(Temp));
                     System.out.println("Results processed.");
                     System.out.println();
                     System.out.println();    
@@ -206,22 +229,34 @@ public class Scraper implements Daemon{
         }
     }
     
-    private static String[] createDirectory(String OutputFile, long timeMillis) throws IOException{
+    private static String[] createDirectory(String OutputFile, long timeMillis, String Temp) throws IOException{
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy.MM.dd.HH.mm.ss");
         String sts = sdf.format(timeMillis);
         
         TimeProcessor tp = new TimeProcessor(sts);
+        String DirTempPath = Temp + tp.getYear() + "/" +
+                                      tp.getMonth()+ "/" +
+                                      tp.getDate() + "/" +
+                                      sts + "/";
+        String DirTempPathOnly = Temp + tp.getYear() + "/" +
+                                      tp.getMonth()+ "/" +
+                                      tp.getDate() + "/";
+        /*
         String DirPath = OutputFile + tp.getYear() + "/" +
                                       tp.getMonth()+ "/" +
                                       tp.getDate() + "/" +
                                       sts + "/";
+        */
         String DirPathZip = OutputFile + tp.getYear() + "/" +
                                       tp.getMonth()+ "/" +
                                       tp.getDate() + "/";
-        System.out.println("DirPath: " + DirPath);
-        Path path = Paths.get(DirPath);
-        Files.createDirectories(path);
-        String[] PathAll = {DirPath, DirPathZip};
+        System.out.println("DirPathZip: " + DirPathZip);
+        System.out.println("DirTempPath:" + DirTempPath);
+        Path ZipPath = Paths.get(DirPathZip);
+        Files.createDirectories(ZipPath);
+        Path TempPath = Paths.get(DirTempPath);
+        Files.createDirectories(TempPath);
+        String[] PathAll = {DirTempPath, DirPathZip, DirTempPathOnly};
         return PathAll;
         
     }
